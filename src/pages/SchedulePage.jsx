@@ -17,22 +17,20 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowLeft,
-  BedDouble,
   CheckSquare,
   ChevronDown,
   ChevronUp,
   Clock,
   CloudSun,
+  Edit3,
   FileText,
   GripVertical,
   Map,
   MapPin,
-  Plane,
   Plus,
   Search,
   Square,
   Trash2,
-  Wallet,
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
 import RouteMapView from '../components/RouteMapView';
@@ -67,7 +65,31 @@ const CHECKLIST_PRESETS = [
   '상비약 (소화제·진통제)',
 ];
 
-function SortableScheduleItem({ item, index, isHighlighted, onSelect, onDelete }) {
+function createEmptyFlightForm() {
+  return {
+    id: null,
+    outbound_route: '',
+    outbound_airline: '',
+    outbound_time: '',
+    inbound_route: '',
+    inbound_airline: '',
+    inbound_time: '',
+    price: '',
+    memo: '',
+  };
+}
+
+function createEmptyStayForm() {
+  return {
+    id: null,
+    name: '',
+    period: '',
+    address: '',
+    price: '',
+  };
+}
+
+function SortableScheduleItem({ item, index, isHighlighted, onEdit, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.id });
 
@@ -89,19 +111,23 @@ function SortableScheduleItem({ item, index, isHighlighted, onSelect, onDelete }
       />
 
       <div
-        onClick={() => onSelect(item.id, item.day_number)}
-        className={`glass-card rounded-2xl p-3.5 flex items-center justify-between gap-2.5 border transition-all ${
+        onClick={() => onEdit(item)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && onEdit(item)}
+        className={`glass-card rounded-2xl p-3.5 flex items-center justify-between gap-2.5 border cursor-pointer transition-all active:scale-[0.99] ${
           isDragging
             ? 'z-30 opacity-90 scale-[1.02] ring-2 ring-sky-400 shadow-2xl'
             : isHighlighted
             ? 'border-amber-400/70 bg-amber-500/10'
-            : 'border-white/10'
+            : 'border-white/10 hover:bg-white/[0.06]'
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button
             type="button"
             aria-label="순서 이동 핸들"
+            onClick={(e) => e.stopPropagation()}
             {...attributes}
             {...listeners}
             className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-white bg-white/5 cursor-grab active:cursor-grabbing touch-none shrink-0"
@@ -143,17 +169,30 @@ function SortableScheduleItem({ item, index, isHighlighted, onSelect, onDelete }
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(item.id);
-          }}
-          aria-label={`${item.place_name} 삭제`}
-          className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(item);
+            }}
+            aria-label={`${item.place_name} 수정`}
+            className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-sky-400 hover:bg-white/10"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(item.id);
+            }}
+            aria-label={`${item.place_name} 삭제`}
+            className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -194,6 +233,7 @@ export default function SchedulePage() {
   // 모달 상태: null | 'flight' | 'stay' | 'checklist' | 'place' | 'memo'
   const [activeModal, setActiveModal] = useState(null);
   const [targetDay, setTargetDay] = useState(1);
+  const [editingScheduleId, setEditingScheduleId] = useState(null);
 
   // 장소 검색 및 폼 상태
   const [searchQuery, setSearchQuery] = useState('');
@@ -208,29 +248,17 @@ export default function SchedulePage() {
     memo: '',
   });
 
-  // 메모 추가 폼 상태
+  // 메모 추가/수정 폼 상태
   const [memoForm, setMemoForm] = useState({
     title: '',
     content: '',
   });
 
-  // 항공편 폼 상태
-  const [flightForm, setFlightForm] = useState({
-    route: '',
-    airline: '',
-    outbound_time: '',
-    inbound_time: '',
-    price: '',
-    tag: '#예약완료',
-  });
+  // 항공편 폼 상태 (가는편 / 오는편 구간·편명·일시 분리)
+  const [flightForm, setFlightForm] = useState(createEmptyFlightForm);
 
   // 숙소 폼 상태
-  const [stayForm, setStayForm] = useState({
-    name: '',
-    period: '',
-    address: '',
-    price: '',
-  });
+  const [stayForm, setStayForm] = useState(createEmptyStayForm);
 
   // 체크리스트 입력 상태
   const [checklistInput, setChecklistInput] = useState('');
@@ -242,13 +270,16 @@ export default function SchedulePage() {
 
   useEffect(() => {
     let active = true;
-    searchPlaceCandidates(searchQuery).then((res) => {
-      if (active) setCandidates(res);
-    });
+    const timer = setTimeout(() => {
+      searchPlaceCandidates(searchQuery, activeTrip?.destination || '').then((res) => {
+        if (active) setCandidates(res);
+      });
+    }, 180);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
-  }, [searchQuery]);
+  }, [searchQuery, activeTrip?.destination]);
 
   if (!activeTrip) {
     return (
@@ -270,15 +301,17 @@ export default function SchedulePage() {
     navigate(isTripPast(activeTrip) ? '/archive' : '/');
   };
 
+  // --- 신규 장소 모달 열기 ---
   const openPlaceModal = (day) => {
+    setEditingScheduleId(null);
     setTargetDay(day);
     setSelectedDay(day);
     setPlaceForm({
       place_name: '',
       category: 'spot',
       time_slot: '11:00',
-      lat: 35.6762,
-      lng: 139.6503,
+      lat: 16.0544,
+      lng: 108.2022,
       address: '',
       memo: '',
     });
@@ -286,11 +319,41 @@ export default function SchedulePage() {
     setActiveModal('place');
   };
 
+  // --- 신규 메모 모달 열기 ---
   const openMemoModal = (day) => {
+    setEditingScheduleId(null);
     setTargetDay(day);
     setSelectedDay(day);
     setMemoForm({ title: '', content: '' });
     setActiveModal('memo');
+  };
+
+  // --- 등록된 일정(장소 또는 메모) 클릭 시 수정 모달 열기 ---
+  const handleEditScheduleItem = (item) => {
+    setHighlightedId(item.id);
+    setSelectedDay(item.day_number);
+    setTargetDay(item.day_number);
+    setEditingScheduleId(item.id);
+
+    if (item.category === 'memo') {
+      setMemoForm({
+        title: item.place_name || '',
+        content: item.memo || '',
+      });
+      setActiveModal('memo');
+    } else {
+      setPlaceForm({
+        place_name: item.place_name || '',
+        category: item.category || 'spot',
+        time_slot: item.time_slot || '11:00',
+        lat: Number(item.lat) || 16.0544,
+        lng: Number(item.lng) || 108.2022,
+        address: item.address || '',
+        memo: item.memo || '',
+      });
+      setSearchQuery('');
+      setActiveModal('place');
+    }
   };
 
   const handlePickCandidate = (place) => {
@@ -304,48 +367,66 @@ export default function SchedulePage() {
     }));
   };
 
-  const handleAddPlaceSubmit = async (e) => {
+  const handleSavePlaceSubmit = async (e) => {
     e.preventDefault();
     if (!placeForm.place_name.trim()) return;
+
+    const existing = editingScheduleId
+      ? schedules.find((s) => s.id === editingScheduleId)
+      : null;
 
     const dayItems = schedules.filter(
       (s) => s.trip_id === activeTrip.id && s.day_number === targetDay
     );
-    const baseLat = Number(placeForm.lat) || (dayItems[0]?.lat ?? 35.6762);
-    const baseLng = Number(placeForm.lng) || (dayItems[0]?.lng ?? 139.6503);
+    const baseLat = Number(placeForm.lat) || (dayItems[0]?.lat ?? 16.0544);
+    const baseLng = Number(placeForm.lng) || (dayItems[0]?.lng ?? 108.2022);
     const jitter = dayItems.length * 0.004;
 
     await saveSchedule({
       ...placeForm,
+      id: editingScheduleId || undefined,
       trip_id: activeTrip.id,
       day_number: targetDay,
-      order_index: dayItems.length,
-      lat: placeForm.lat !== 35.6762 ? placeForm.lat : baseLat + jitter,
-      lng: placeForm.lng !== 139.6503 ? placeForm.lng : baseLng + jitter,
+      order_index:
+        existing && existing.day_number === targetDay
+          ? existing.order_index
+          : dayItems.length,
+      lat: existing ? Number(placeForm.lat) : baseLat + jitter,
+      lng: existing ? Number(placeForm.lng) : baseLng + jitter,
     });
+    setEditingScheduleId(null);
     setActiveModal(null);
   };
 
-  const handleAddMemoSubmit = async (e) => {
+  const handleSaveMemoSubmit = async (e) => {
     e.preventDefault();
     if (!memoForm.title.trim() && !memoForm.content.trim()) return;
+
+    const existing = editingScheduleId
+      ? schedules.find((s) => s.id === editingScheduleId)
+      : null;
 
     const dayItems = schedules.filter(
       (s) => s.trip_id === activeTrip.id && s.day_number === targetDay
     );
 
     await saveSchedule({
+      id: editingScheduleId || undefined,
       trip_id: activeTrip.id,
       day_number: targetDay,
-      order_index: dayItems.length,
+      order_index:
+        existing && existing.day_number === targetDay
+          ? existing.order_index
+          : dayItems.length,
       place_name: memoForm.title.trim() || '일정 메모',
       category: 'memo',
       time_slot: '',
-      lat: dayItems[0]?.lat ?? 35.6762,
-      lng: dayItems[0]?.lng ?? 139.6503,
+      lat: existing?.lat ?? dayItems[0]?.lat ?? 16.0544,
+      lng: existing?.lng ?? dayItems[0]?.lng ?? 108.2022,
       address: '',
       memo: memoForm.content.trim(),
     });
+    setEditingScheduleId(null);
     setActiveModal(null);
   };
 
@@ -360,31 +441,51 @@ export default function SchedulePage() {
     await reorderSchedules(activeTrip.id, day, reordered);
   };
 
-  // --- 항공편 추가 / 삭제 ---
-  const handleAddFlight = async (e) => {
+  // --- 항공편 등록 / 수정 / 삭제 (가는편·오는편 각각 구간·편명·일시) ---
+  const handleEditFlight = (flt) => {
+    setFlightForm({
+      id: flt.id,
+      outbound_route: flt.outbound_route || flt.route || '',
+      outbound_airline: flt.outbound_airline || flt.airline || '',
+      outbound_time: flt.outbound_time || '',
+      inbound_route: flt.inbound_route || '',
+      inbound_airline: flt.inbound_airline || '',
+      inbound_time: flt.inbound_time || '',
+      price: flt.price ? String(flt.price) : '',
+      memo: flt.memo || '',
+    });
+    setActiveModal('flight');
+  };
+
+  const handleSaveFlight = async (e) => {
     e.preventDefault();
-    if (!flightForm.route.trim()) return;
-    const newFlight = {
-      id: makeId('flt'),
-      route: flightForm.route.trim(),
-      airline: flightForm.airline.trim() || '항공편',
+    if (!flightForm.outbound_route.trim() && !flightForm.inbound_route.trim()) return;
+
+    const entry = {
+      id: flightForm.id || makeId('flt'),
+      outbound_route: flightForm.outbound_route.trim(),
+      outbound_airline: flightForm.outbound_airline.trim(),
       outbound_time: flightForm.outbound_time.trim(),
+      inbound_route: flightForm.inbound_route.trim(),
+      inbound_airline: flightForm.inbound_airline.trim(),
       inbound_time: flightForm.inbound_time.trim(),
+      // 하위 호환용 대표 필드
+      route: flightForm.outbound_route.trim() || flightForm.inbound_route.trim(),
+      airline: flightForm.outbound_airline.trim() || flightForm.inbound_airline.trim(),
       price: Number(stripCommaNumber(flightForm.price)) || 0,
-      tag: flightForm.tag.trim() || '#항공권',
+      memo: flightForm.memo.trim(),
     };
+
+    const exists = flights.some((f) => f.id === entry.id);
+    const nextFlights = exists
+      ? flights.map((f) => (f.id === entry.id ? entry : f))
+      : [...flights, entry];
+
     await saveTrip({
       ...activeTrip,
-      flights: [...flights, newFlight],
+      flights: nextFlights,
     });
-    setFlightForm({
-      route: '',
-      airline: '',
-      outbound_time: '',
-      inbound_time: '',
-      price: '',
-      tag: '#예약완료',
-    });
+    setFlightForm(createEmptyFlightForm());
   };
 
   const handleDeleteFlight = async (flightId) => {
@@ -392,24 +493,43 @@ export default function SchedulePage() {
       ...activeTrip,
       flights: flights.filter((f) => f.id !== flightId),
     });
+    if (flightForm.id === flightId) {
+      setFlightForm(createEmptyFlightForm());
+    }
   };
 
-  // --- 숙소 추가 / 삭제 ---
-  const handleAddStay = async (e) => {
+  // --- 숙소 등록 / 수정 / 삭제 ---
+  const handleEditStay = (stay) => {
+    setStayForm({
+      id: stay.id,
+      name: stay.name || '',
+      period: stay.period || '',
+      address: stay.address || '',
+      price: stay.price ? String(stay.price) : '',
+    });
+    setActiveModal('stay');
+  };
+
+  const handleSaveStay = async (e) => {
     e.preventDefault();
     if (!stayForm.name.trim()) return;
-    const newStay = {
-      id: makeId('stay'),
+    const entry = {
+      id: stayForm.id || makeId('stay'),
       name: stayForm.name.trim(),
       period: stayForm.period.trim(),
       address: stayForm.address.trim(),
       price: Number(stripCommaNumber(stayForm.price)) || 0,
     };
+    const exists = accommodations.some((s) => s.id === entry.id);
+    const nextStays = exists
+      ? accommodations.map((s) => (s.id === entry.id ? entry : s))
+      : [...accommodations, entry];
+
     await saveTrip({
       ...activeTrip,
-      accommodations: [...accommodations, newStay],
+      accommodations: nextStays,
     });
-    setStayForm({ name: '', period: '', address: '', price: '' });
+    setStayForm(createEmptyStayForm());
   };
 
   const handleDeleteStay = async (stayId) => {
@@ -417,6 +537,9 @@ export default function SchedulePage() {
       ...activeTrip,
       accommodations: accommodations.filter((s) => s.id !== stayId),
     });
+    if (stayForm.id === stayId) {
+      setStayForm(createEmptyStayForm());
+    }
   };
 
   // --- 체크리스트 추가 / 토글 / 삭제 ---
@@ -460,7 +583,7 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-4">
-      {/* 1. 상단 고정 헤더 + 4대 등록 캡슐 버튼 (첨부 이미지 레이아웃 100% 반영) */}
+      {/* 1. 상단 고정 헤더 + 4대 등록 캡슐 버튼 */}
       <div className="sticky top-0 z-30 -mx-4 px-4 pt-safe-header pb-3 glass-panel border-x-0 border-t-0 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -500,11 +623,14 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {/* 상단 4개 퀵 액션 필 버튼: + 항공편 | + 숙소 | 체크리스트 | 가계부 (Apple HIG >= 44pt) */}
+        {/* 상단 4개 퀵 액션 필 버튼: + 항공편 | + 숙소 | 체크리스트 | 가계부 */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
-            onClick={() => setActiveModal('flight')}
+            onClick={() => {
+              setFlightForm(createEmptyFlightForm());
+              setActiveModal('flight');
+            }}
             className={`tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
               flights.length > 0
                 ? 'bg-sky-500/15 border-sky-400/40 text-sky-300'
@@ -522,7 +648,10 @@ export default function SchedulePage() {
 
           <button
             type="button"
-            onClick={() => setActiveModal('stay')}
+            onClick={() => {
+              setStayForm(createEmptyStayForm());
+              setActiveModal('stay');
+            }}
             className={`tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
               accommodations.length > 0
                 ? 'bg-indigo-500/15 border-indigo-400/40 text-indigo-300'
@@ -597,7 +726,7 @@ export default function SchedulePage() {
         </section>
       )}
 
-      {/* 3. 등록된 항공편 & 숙소 요약 카드 섹션 (첨부 이미지의 '서울 - 다낭' 카드 스타일) */}
+      {/* 3. 등록된 항공편 & 숙소 요약 카드 섹션 (터치 시 수정 모달 오픈) */}
       {(flights.length > 0 || accommodations.length > 0) && (
         <section className="glass-card rounded-3xl p-4 space-y-3 border border-white/10">
           <div className="flex items-center justify-between">
@@ -625,41 +754,73 @@ export default function SchedulePage() {
 
           {showBookingsCard && (
             <div className="flex gap-3 overflow-x-auto pb-1">
-              {flights.map((flt) => (
-                <div
-                  key={flt.id}
-                  onClick={() => setActiveModal('flight')}
-                  className="min-w-[240px] max-w-[270px] shrink-0 rounded-2xl p-4 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 cursor-pointer space-y-2 transition"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-sm font-extrabold text-white truncate">{flt.route}</h4>
-                    <span className="text-[11px] font-bold text-rose-400 shrink-0">
-                      {flt.airline}
-                    </span>
+              {flights.map((flt) => {
+                const outRoute = flt.outbound_route || flt.route;
+                const outAirline = flt.outbound_airline || flt.airline;
+                return (
+                  <div
+                    key={flt.id}
+                    onClick={() => handleEditFlight(flt)}
+                    className="min-w-[255px] max-w-[290px] shrink-0 rounded-2xl p-4 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 cursor-pointer space-y-2.5 transition"
+                  >
+                    {/* 가는편 */}
+                    {outRoute && (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold text-white truncate">
+                            🛫 {outRoute}
+                          </span>
+                          {outAirline && (
+                            <span className="text-[11px] font-bold text-rose-400 shrink-0">
+                              {outAirline}
+                            </span>
+                          )}
+                        </div>
+                        {flt.outbound_time && (
+                          <p className="text-[11px] text-zinc-400">{flt.outbound_time}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 오는편 */}
+                    {(flt.inbound_route || flt.inbound_time) && (
+                      <div className="space-y-0.5 pt-1.5 border-t border-white/10">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold text-white truncate">
+                            🛬 {flt.inbound_route || '오는편'}
+                          </span>
+                          {flt.inbound_airline && (
+                            <span className="text-[11px] font-bold text-sky-300 shrink-0">
+                              {flt.inbound_airline}
+                            </span>
+                          )}
+                        </div>
+                        {flt.inbound_time && (
+                          <p className="text-[11px] text-zinc-400">{flt.inbound_time}</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="pt-1 flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-sky-400">
+                        {flt.memo || '#탭하여수정'}
+                      </span>
+                      <span className="text-sm font-extrabold text-white">
+                        {flt.price > 0 ? `${flt.price.toLocaleString()}원` : '수정'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-xs text-zinc-400 space-y-0.5 leading-relaxed">
-                    {flt.outbound_time && <p>{flt.outbound_time}</p>}
-                    {flt.inbound_time && <p>{flt.inbound_time}</p>}
-                  </div>
-                  <div className="pt-1 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-sky-400">
-                      {flt.tag || '#항공편'}
-                    </span>
-                    <span className="text-sm font-extrabold text-white">
-                      {flt.price > 0 ? `${flt.price.toLocaleString()}원` : '일정 확인'}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {accommodations.map((stay) => (
                 <div
                   key={stay.id}
-                  onClick={() => setActiveModal('stay')}
+                  onClick={() => handleEditStay(stay)}
                   className="min-w-[240px] max-w-[270px] shrink-0 rounded-2xl p-4 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 cursor-pointer space-y-2 transition"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-sm font-extrabold text-white truncate">{stay.name}</h4>
+                    <h4 className="text-sm font-extrabold text-white truncate">🏨 {stay.name}</h4>
                     <span className="text-[11px] font-bold text-indigo-300 shrink-0">숙소</span>
                   </div>
                   <div className="text-xs text-zinc-400 space-y-0.5 leading-relaxed">
@@ -667,9 +828,9 @@ export default function SchedulePage() {
                     {stay.address && <p className="truncate">{stay.address}</p>}
                   </div>
                   <div className="pt-1 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-indigo-400">#숙소예약</span>
+                    <span className="text-[11px] font-semibold text-indigo-400">#탭하여수정</span>
                     <span className="text-sm font-extrabold text-white">
-                      {stay.price > 0 ? `${stay.price.toLocaleString()}원` : '상세 보기'}
+                      {stay.price > 0 ? `${stay.price.toLocaleString()}원` : '수정'}
                     </span>
                   </div>
                 </div>
@@ -701,7 +862,7 @@ export default function SchedulePage() {
                 </div>
                 {daySchedules.length > 0 && (
                   <span className="text-[11px] text-zinc-500">
-                    {daySchedules.length}개 일정
+                    {daySchedules.length}개 일정 (탭하여 수정)
                   </span>
                 )}
               </div>
@@ -725,10 +886,7 @@ export default function SchedulePage() {
                             item={item}
                             index={idx}
                             isHighlighted={item.id === highlightedId}
-                            onSelect={(id, d) => {
-                              setHighlightedId(id);
-                              setSelectedDay(d);
-                            }}
+                            onEdit={handleEditScheduleItem}
                             onDelete={deleteSchedule}
                           />
                         ))}
@@ -738,7 +896,7 @@ export default function SchedulePage() {
                 </div>
               )}
 
-              {/* 하단 [장소 추가] | [메모 추가] 2열 버튼 (첨부 이미지 디자인 100% 반영) */}
+              {/* 하단 [장소 추가] | [메모 추가] 2열 버튼 */}
               <div className="grid grid-cols-2 gap-2.5 pt-1">
                 <button
                   type="button"
@@ -762,11 +920,18 @@ export default function SchedulePage() {
 
       {/* ================= 바텀 시트 모달 영역 ================= */}
 
-      {/* A. 장소 추가 바텀 시트 */}
+      {/* A. 장소 추가 / 수정 바텀 시트 */}
       <BottomSheet
         isOpen={activeModal === 'place'}
-        onClose={() => setActiveModal(null)}
-        title={`day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 장소 추가`}
+        onClose={() => {
+          setEditingScheduleId(null);
+          setActiveModal(null);
+        }}
+        title={
+          editingScheduleId
+            ? `day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 장소 수정`
+            : `day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 장소 추가`
+        }
       >
         <div className="space-y-4">
           {/* 일차 변경 가능 */}
@@ -776,7 +941,7 @@ export default function SchedulePage() {
                 key={d}
                 type="button"
                 onClick={() => setTargetDay(d)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 border ${
+                className={`tap-target px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 border ${
                   d === targetDay
                     ? 'bg-sky-500 text-zinc-950 border-sky-400'
                     : 'bg-white/5 text-zinc-400 border-white/10'
@@ -792,7 +957,7 @@ export default function SchedulePage() {
               <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="장소·명소 검색 (예: 한시장, 바나힐, 시부야, 공항)"
+                placeholder="장소·명소 검색 (OpenStreetMap 전 세계 검색 연동)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-xs text-white focus:outline-none focus:border-sky-400"
@@ -814,7 +979,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
-          <form onSubmit={handleAddPlaceSubmit} className="space-y-3">
+          <form onSubmit={handleSavePlaceSubmit} className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1">장소명</label>
               <input
@@ -828,7 +993,7 @@ export default function SchedulePage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-medium text-zinc-400 mb-1">방문 시간</label>
                 <input
                   type="time"
@@ -838,7 +1003,7 @@ export default function SchedulePage() {
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-medium text-zinc-400 mb-1">카테고리</label>
                 <select
                   value={placeForm.category}
@@ -871,204 +1036,375 @@ export default function SchedulePage() {
               type="submit"
               className="tap-target w-full py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-sm shadow-lg shadow-sky-500/25"
             >
-              day {targetDay}에 장소 등록하기
+              {editingScheduleId
+                ? `day ${targetDay} 장소 수정 저장하기`
+                : `day ${targetDay}에 장소 등록하기`}
             </button>
           </form>
         </div>
       </BottomSheet>
 
-      {/* B. 메모 추가 바텀 시트 */}
+      {/* B. 메모 추가 / 수정 바텀 시트 */}
       <BottomSheet
         isOpen={activeModal === 'memo'}
-        onClose={() => setActiveModal(null)}
-        title={`day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 메모 추가`}
+        onClose={() => {
+          setEditingScheduleId(null);
+          setActiveModal(null);
+        }}
+        title={
+          editingScheduleId
+            ? `day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 메모 수정`
+            : `day ${targetDay} (${getDayDateLabel(activeTrip.start_date, targetDay)}) 메모 추가`
+        }
       >
-        <form onSubmit={handleAddMemoSubmit} className="space-y-3.5">
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">메모 제목</label>
-            <input
-              type="text"
-              placeholder="예: 공항 픽업 안내 / 유심 수령처"
-              value={memoForm.title}
-              onChange={(e) => setMemoForm({ ...memoForm, title: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-400"
-            />
+        <div className="space-y-4">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {dayList.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setTargetDay(d)}
+                className={`tap-target px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 border ${
+                  d === targetDay
+                    ? 'bg-purple-500 text-zinc-950 border-purple-400'
+                    : 'bg-white/5 text-zinc-400 border-white/10'
+                }`}
+              >
+                day {d}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">상세 메모 내용</label>
-            <textarea
-              rows={4}
-              required
-              placeholder="이동 방법, 예약 번호, 쇼핑 리스트 등 자유롭게 적어주세요."
-              value={memoForm.content}
-              onChange={(e) => setMemoForm({ ...memoForm, content: e.target.value })}
-              className="w-full p-3.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-400"
-            />
-          </div>
-          <button
-            type="submit"
-            className="tap-target w-full py-3 rounded-2xl bg-purple-500 hover:bg-purple-400 text-zinc-950 font-bold text-sm"
-          >
-            day {targetDay}에 메모 등록하기
-          </button>
-        </form>
+
+          <form onSubmit={handleSaveMemoSubmit} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">메모 제목</label>
+              <input
+                type="text"
+                placeholder="예: 공항 픽업 안내 / 유심 수령처"
+                value={memoForm.title}
+                onChange={(e) => setMemoForm({ ...memoForm, title: e.target.value })}
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">상세 메모 내용</label>
+              <textarea
+                rows={4}
+                required
+                placeholder="이동 방법, 예약 번호, 쇼핑 리스트 등 자유롭게 적어주세요."
+                value={memoForm.content}
+                onChange={(e) => setMemoForm({ ...memoForm, content: e.target.value })}
+                className="w-full p-3.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-400"
+              />
+            </div>
+            <button
+              type="submit"
+              className="tap-target w-full py-3 rounded-2xl bg-purple-500 hover:bg-purple-400 text-zinc-950 font-bold text-sm"
+            >
+              {editingScheduleId
+                ? `day ${targetDay} 메모 수정 저장하기`
+                : `day ${targetDay}에 메모 등록하기`}
+            </button>
+          </form>
+        </div>
       </BottomSheet>
 
-      {/* C. + 항공편 등록 및 관리 바텀 시트 */}
+      {/* C. + 항공편 등록 및 수정 바텀 시트 (가는편 / 오는편 각각 구간·편명·일시 분리) */}
       <BottomSheet
         isOpen={activeModal === 'flight'}
-        onClose={() => setActiveModal(null)}
+        onClose={() => {
+          setFlightForm(createEmptyFlightForm());
+          setActiveModal(null);
+        }}
         title="✈️ 항공편 등록 및 관리"
       >
         <div className="space-y-4">
           {flights.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-zinc-400">등록된 항공편 ({flights.length})</p>
-              {flights.map((flt) => (
-                <div
-                  key={flt.id}
-                  className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white">{flt.route}</span>
-                      <span className="text-xs text-rose-400 font-semibold">{flt.airline}</span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      {[flt.outbound_time, flt.inbound_time].filter(Boolean).join(' / ')}
-                    </p>
-                    {flt.price > 0 && (
-                      <p className="text-xs font-bold text-sky-400 mt-0.5">
-                        {flt.price.toLocaleString()}원
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteFlight(flt.id)}
-                    className="tap-target p-2 text-zinc-400 hover:text-rose-400"
+              <p className="text-xs font-semibold text-zinc-400">
+                등록된 항공편 ({flights.length}) · 항목을 탭하면 수정됩니다
+              </p>
+              {flights.map((flt) => {
+                const outRoute = flt.outbound_route || flt.route;
+                const outAirline = flt.outbound_airline || flt.airline;
+                const isEditing = flightForm.id === flt.id;
+                return (
+                  <div
+                    key={flt.id}
+                    onClick={() => handleEditFlight(flt)}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                      isEditing
+                        ? 'bg-sky-500/15 border-sky-400/60'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0 space-y-1">
+                      {outRoute && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-white">🛫 {outRoute}</span>
+                          {outAirline && (
+                            <span className="text-xs text-rose-400 font-semibold">
+                              {outAirline}
+                            </span>
+                          )}
+                          {flt.outbound_time && (
+                            <span className="text-[11px] text-zinc-400">{flt.outbound_time}</span>
+                          )}
+                        </div>
+                      )}
+                      {(flt.inbound_route || flt.inbound_time) && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-white">
+                            🛬 {flt.inbound_route || '오는편'}
+                          </span>
+                          {flt.inbound_airline && (
+                            <span className="text-xs text-sky-300 font-semibold">
+                              {flt.inbound_airline}
+                            </span>
+                          )}
+                          {flt.inbound_time && (
+                            <span className="text-[11px] text-zinc-400">{flt.inbound_time}</span>
+                          )}
+                        </div>
+                      )}
+                      {flt.price > 0 && (
+                        <p className="text-xs font-bold text-sky-400">
+                          {flt.price.toLocaleString()}원
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFlight(flt.id);
+                      }}
+                      className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          <form onSubmit={handleAddFlight} className="space-y-3 pt-2 border-t border-white/10">
+          <form onSubmit={handleSaveFlight} className="space-y-3.5 pt-2 border-t border-white/10">
+            {/* 1) 가는편 섹션 */}
+            <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-sky-400">🛫 가는편 (출국)</span>
+                {flightForm.id && (
+                  <button
+                    type="button"
+                    onClick={() => setFlightForm(createEmptyFlightForm())}
+                    className="text-[11px] text-zinc-400 hover:text-white underline"
+                  >
+                    + 새 항공편 입력으로 전환
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] text-zinc-400 mb-1">
+                    가는편 구간 (출발 - 도착)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: 인천 - 다낭"
+                    value={flightForm.outbound_route}
+                    onChange={(e) =>
+                      setFlightForm({ ...flightForm, outbound_route: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-zinc-400 mb-1">가는편 항공사·편명</label>
+                  <input
+                    type="text"
+                    placeholder="예: 비엣젯 VJ879"
+                    value={flightForm.outbound_airline}
+                    onChange={(e) =>
+                      setFlightForm({ ...flightForm, outbound_airline: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-zinc-400 mb-1">가는편 일시·시간</label>
+                <input
+                  type="text"
+                  placeholder="예: 3.25(목) 07:00 - 10:05"
+                  value={flightForm.outbound_time}
+                  onChange={(e) =>
+                    setFlightForm({ ...flightForm, outbound_time: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            {/* 2) 오는편 섹션 */}
+            <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2.5">
+              <span className="block text-xs font-bold text-indigo-300">
+                🛬 오는편 (귀국 · 선택)
+              </span>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] text-zinc-400 mb-1">
+                    오는편 구간 (출발 - 도착)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="예: 다낭 - 인천"
+                    value={flightForm.inbound_route}
+                    onChange={(e) =>
+                      setFlightForm({ ...flightForm, inbound_route: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-zinc-400 mb-1">오는편 항공사·편명</label>
+                  <input
+                    type="text"
+                    placeholder="예: 대한항공 KE462"
+                    value={flightForm.inbound_airline}
+                    onChange={(e) =>
+                      setFlightForm({ ...flightForm, inbound_airline: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-zinc-400 mb-1">오는편 일시·시간</label>
+                <input
+                  type="text"
+                  placeholder="예: 3.28(일) 23:45 - 06:00"
+                  value={flightForm.inbound_time}
+                  onChange={(e) =>
+                    setFlightForm({ ...flightForm, inbound_time: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            {/* 3) 금액 및 메모 */}
             <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">구간 (출발 - 도착)</label>
+                <label className="block text-xs text-zinc-400 mb-1">항공권 총액 (원화)</label>
                 <input
                   type="text"
-                  required
-                  placeholder="예: 서울 - 다낭"
-                  value={flightForm.route}
-                  onChange={(e) => setFlightForm({ ...flightForm, route: e.target.value })}
+                  inputMode="numeric"
+                  placeholder="예: 421,000"
+                  value={formatCommaNumber(flightForm.price)}
+                  onChange={(e) =>
+                    setFlightForm({ ...flightForm, price: stripCommaNumber(e.target.value) })
+                  }
                   className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">항공사 / 편명</label>
+                <label className="block text-xs text-zinc-400 mb-1">예약번호 / 메모</label>
                 <input
                   type="text"
-                  placeholder="예: 비엣젯항공"
-                  value={flightForm.airline}
-                  onChange={(e) => setFlightForm({ ...flightForm, airline: e.target.value })}
+                  placeholder="예: 수하물 20kg 포함"
+                  value={flightForm.memo}
+                  onChange={(e) => setFlightForm({ ...flightForm, memo: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">가는편 일시·시간</label>
-              <input
-                type="text"
-                placeholder="예: 3.25(목), 07:00 - 10:05"
-                value={flightForm.outbound_time}
-                onChange={(e) => setFlightForm({ ...flightForm, outbound_time: e.target.value })}
-                className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">오는편 일시·시간 (선택)</label>
-              <input
-                type="text"
-                placeholder="예: 3.28(일), 23:45 - 06:00"
-                value={flightForm.inbound_time}
-                onChange={(e) => setFlightForm({ ...flightForm, inbound_time: e.target.value })}
-                className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">항공권 금액 (원화, 선택)</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="예: 421,000"
-                value={formatCommaNumber(flightForm.price)}
-                onChange={(e) =>
-                  setFlightForm({ ...flightForm, price: stripCommaNumber(e.target.value) })
-                }
-                className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white"
-              />
             </div>
 
             <button
               type="submit"
               className="tap-target w-full py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-sm"
             >
-              항공편 추가하기
+              {flightForm.id ? '항공편 수정 저장하기' : '항공편 추가하기'}
             </button>
           </form>
         </div>
       </BottomSheet>
 
-      {/* D. + 숙소 등록 및 관리 바텀 시트 */}
+      {/* D. + 숙소 등록 및 수정 바텀 시트 */}
       <BottomSheet
         isOpen={activeModal === 'stay'}
-        onClose={() => setActiveModal(null)}
+        onClose={() => {
+          setStayForm(createEmptyStayForm());
+          setActiveModal(null);
+        }}
         title="🏨 숙소 등록 및 관리"
       >
         <div className="space-y-4">
           {accommodations.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-semibold text-zinc-400">
-                등록된 숙소 ({accommodations.length})
+                등록된 숙소 ({accommodations.length}) · 항목을 탭하면 수정됩니다
               </p>
-              {accommodations.map((stay) => (
-                <div
-                  key={stay.id}
-                  className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{stay.name}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      {[stay.period, stay.address].filter(Boolean).join(' · ')}
-                    </p>
-                    {stay.price > 0 && (
-                      <p className="text-xs font-bold text-indigo-300 mt-0.5">
-                        {stay.price.toLocaleString()}원
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteStay(stay.id)}
-                    className="tap-target p-2 text-zinc-400 hover:text-rose-400"
+              {accommodations.map((stay) => {
+                const isEditing = stayForm.id === stay.id;
+                return (
+                  <div
+                    key={stay.id}
+                    onClick={() => handleEditStay(stay)}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                      isEditing
+                        ? 'bg-indigo-500/15 border-indigo-400/60'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-white truncate">{stay.name}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {[stay.period, stay.address].filter(Boolean).join(' · ')}
+                      </p>
+                      {stay.price > 0 && (
+                        <p className="text-xs font-bold text-indigo-300 mt-0.5">
+                          {stay.price.toLocaleString()}원
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteStay(stay.id);
+                      }}
+                      className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          <form onSubmit={handleAddStay} className="space-y-3 pt-2 border-t border-white/10">
+          <form onSubmit={handleSaveStay} className="space-y-3 pt-2 border-t border-white/10">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">숙소명 (호텔/리조트/에어비앤비)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs text-zinc-400">
+                  숙소명 (호텔/리조트/에어비앤비)
+                </label>
+                {stayForm.id && (
+                  <button
+                    type="button"
+                    onClick={() => setStayForm(createEmptyStayForm())}
+                    className="text-[11px] text-zinc-400 hover:text-white underline"
+                  >
+                    + 새 숙소 입력으로 전환
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 required
@@ -1120,7 +1456,7 @@ export default function SchedulePage() {
               type="submit"
               className="tap-target w-full py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-sm"
             >
-              숙소 추가하기
+              {stayForm.id ? '숙소 수정 저장하기' : '숙소 추가하기'}
             </button>
           </form>
         </div>
@@ -1133,7 +1469,6 @@ export default function SchedulePage() {
         title={`☑️ 여행 준비물 체크리스트 (${checkedCount}/${checklist.length})`}
       >
         <div className="space-y-4">
-          {/* 원터치 추천 준비물 칩 */}
           <div className="space-y-1.5">
             <p className="text-[11px] text-zinc-400">자주 쓰는 준비물 원터치 추가</p>
             <div className="flex flex-wrap gap-1.5">
@@ -1142,7 +1477,7 @@ export default function SchedulePage() {
                   key={preset}
                   type="button"
                   onClick={() => handleAddChecklistItem(preset)}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-zinc-300"
+                  className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-zinc-300"
                 >
                   + {preset}
                 </button>
@@ -1204,7 +1539,7 @@ export default function SchedulePage() {
                       e.stopPropagation();
                       handleDeleteChecklist(item.id);
                     }}
-                    className="p-1.5 text-zinc-500 hover:text-rose-400"
+                    className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
