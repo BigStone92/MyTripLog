@@ -11,6 +11,8 @@ import {
   Edit3,
   ChevronRight,
   Search,
+  ArrowRightLeft,
+  RefreshCw,
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
 import DateRangePicker from '../components/DateRangePicker';
@@ -27,6 +29,47 @@ import {
 } from '../store/useTripStore.js';
 
 const TRIP_DRAFT_STORAGE_KEY = 'mytriplog_trip_form_draft_v1';
+const LIVE_RATES_STORAGE_KEY = 'mytriplog_live_rates_v1';
+
+function loadCachedLiveRates() {
+  if (typeof localStorage === 'undefined') return { updatedAt: null, rates: {} };
+  try {
+    const raw = localStorage.getItem(LIVE_RATES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { updatedAt: null, rates: {} };
+  } catch {
+    return { updatedAt: null, rates: {} };
+  }
+}
+
+function resolveTripCurrency(trip, mergedMap) {
+  if (!trip) return 'VND';
+  if (trip.currency && trip.currency !== 'KRW' && mergedMap[trip.currency]) {
+    return trip.currency;
+  }
+  const matchedByDest = searchFlagsAndIcons(`${trip.destination || ''} ${trip.title || ''}`).find(
+    (item) => item.currency && item.currency !== 'KRW' && mergedMap[item.currency]
+  );
+  if (matchedByDest) return matchedByDest.currency;
+  const matchedByEmoji = searchFlagsAndIcons('').find(
+    (item) => item.emoji === trip.cover_emoji && item.currency && item.currency !== 'KRW'
+  );
+  if (matchedByEmoji) return matchedByEmoji.currency;
+  return 'USD';
+}
+
+function getDefaultForeignAmount(rate) {
+  if (rate < 0.2) return 100000;
+  if (rate < 15) return 1000;
+  return 100;
+}
+
+function formatForeignFromKrw(krwVal, rate) {
+  if (!krwVal || !rate) return '';
+  const raw = krwVal / rate;
+  if (rate < 1) return formatCommaNumber(String(Math.round(raw)));
+  if (raw >= 100) return formatCommaNumber(String(Math.round(raw * 10) / 10));
+  return formatCommaNumber(String(Math.round(raw * 100) / 100));
+}
 
 function createInitialForm() {
   const today = getLocalTodayStr();
@@ -65,7 +108,7 @@ export default function HomePage() {
   const saveTrip = useTripStore((s) => s.saveTrip);
   const deleteTrip = useTripStore((s) => s.deleteTrip);
 
-  // 홈: 아직 여행 기간이 지나지 않은 예정/진행 중 여행 일정만 필터링
+  // 홈: 아직 여행 기간이 지나지 않은 예정/진행 중 여행 일정만 출발일 오름차순 정렬
   const upcomingTrips = useMemo(
     () =>
       trips
@@ -74,13 +117,169 @@ export default function HomePage() {
     [trips]
   );
 
+  // 가장 빠른 예정/진행 중 여행 (상단 환율 계산기 자동 매칭 기준)
+  const nearestTrip = upcomingTrips[0] || null;
+
   const activeTrip =
     upcomingTrips.find((t) => t.id === activeTripId) || upcomingTrips[0] || null;
 
-  const allCurrencies = useMemo(
-    () => Object.values(getMergedCurrencies(customCurrencies)),
+  const mergedCurrencyMap = useMemo(
+    () => getMergedCurrencies(customCurrencies),
     [customCurrencies]
   );
+
+  const allCurrencies = useMemo(
+    () => Object.values(mergedCurrencyMap),
+    [mergedCurrencyMap]
+  );
+
+  const foreignCurrencies = useMemo(
+    () => allCurrencies.filter((c) => c.code !== 'KRW'),
+    [allCurrencies]
+  );
+
+  // 실시간 환율 캐시 & 가장 빠른 여행지 통화 자동 동기화
+  const [liveRates, setLiveRates] = useState(() => loadCachedLiveRates());
+  const [isRefreshingRate, setIsRefreshingRate] = useState(false);
+
+  const nearestCurrency = useMemo(
+    () => resolveTripCurrency(nearestTrip, mergedCurrencyMap),
+    [nearestTrip, mergedCurrencyMap]
+  );
+
+  const [calcCurrency, setCalcCurrency] = useState(() => nearestCurrency);
+
+  const getRateForCode = (code, ratesObj = liveRates?.rates) => {
+    if (customCurrencies?.[code]?.rate) return Number(customCurrencies[code].rate);
+    if (ratesObj?.[code]) return Number(ratesObj[code]);
+    return Number(mergedCurrencyMap[code]?.rate ?? 1);
+  };
+
+  const effectiveRate = getRateForCode(calcCurrency);
+  const currentCurrencyObj =
+    mergedCurrencyMap[calcCurrency] || mergedCurrencyMap.VND || allCurrencies[0];
+
+  const [foreignInput, setForeignInput] = useState(() => {
+    const defAmt = getDefaultForeignAmount(effectiveRate);
+    return formatCommaNumber(String(defAmt));
+  });
+  const [krwInput, setKrwInput] = useState(() => {
+    const defAmt = getDefaultForeignAmount(effectiveRate);
+    return formatCommaNumber(String(Math.round(defAmt * effectiveRate)));
+  });
+
+  // 가장 빠른 여행이 로드되거나 변경되면 해당 여행지 통화로 자동 세팅
+  useEffect(() => {
+    if (!nearestCurrency) return;
+    setCalcCurrency(nearestCurrency);
+    const nextRate = getRateForCode(nearestCurrency);
+    const defAmt = getDefaultForeignAmount(nextRate);
+    setForeignInput(formatCommaNumber(String(defAmt)));
+    setKrwInput(formatCommaNumber(String(Math.round(defAmt * nextRate))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearestTrip?.id, nearestCurrency]);
+
+  const refreshLiveExchangeRates = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    setIsRefreshingRate(true);
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/KRW');
+      if (!res.ok) throw new Error('rate fetch failed');
+      const data = await res.json();
+      if (data?.rates) {
+        const converted = {};
+        Object.entries(data.rates).forEach(([code, perKrw]) => {
+          const num = Number(perKrw);
+          if (num > 0) {
+            converted[code] = 1 / num;
+          }
+        });
+        const nextCache = {
+          updatedAt: new Date().toISOString(),
+          rates: converted,
+        };
+        setLiveRates(nextCache);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(LIVE_RATES_STORAGE_KEY, JSON.stringify(nextCache));
+        }
+        const updatedRate = getRateForCode(calcCurrency, converted);
+        const curForeign = Number(stripCommaNumber(foreignInput)) || 0;
+        if (curForeign > 0) {
+          setKrwInput(formatCommaNumber(String(Math.round(curForeign * updatedRate))));
+        }
+      }
+    } catch {
+      // 오프라인 또는 API 호출 실패 시 기존 캐시/내장 환율 유지
+    } finally {
+      setIsRefreshingRate(false);
+    }
+  };
+
+  useEffect(() => {
+    const lastTs = liveRates?.updatedAt ? new Date(liveRates.updatedAt).getTime() : 0;
+    const sixHours = 6 * 60 * 60 * 1000;
+    if (!lastTs || Date.now() - lastTs > sixHours) {
+      refreshLiveExchangeRates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSelectCalcCurrency = (nextCode) => {
+    setCalcCurrency(nextCode);
+    const nextRate = getRateForCode(nextCode);
+    const defAmt = getDefaultForeignAmount(nextRate);
+    setForeignInput(formatCommaNumber(String(defAmt)));
+    setKrwInput(formatCommaNumber(String(Math.round(defAmt * nextRate))));
+  };
+
+  const handleForeignInputChange = (raw) => {
+    const cleaned = stripCommaNumber(raw);
+    setForeignInput(formatCommaNumber(cleaned));
+    if (!cleaned) {
+      setKrwInput('');
+      return;
+    }
+    const krwVal = Math.round(Number(cleaned) * effectiveRate);
+    setKrwInput(formatCommaNumber(String(krwVal)));
+  };
+
+  const handleKrwInputChange = (raw) => {
+    const cleaned = stripCommaNumber(raw);
+    setKrwInput(formatCommaNumber(cleaned));
+    if (!cleaned) {
+      setForeignInput('');
+      return;
+    }
+    setForeignInput(formatForeignFromKrw(Number(cleaned), effectiveRate));
+  };
+
+  const handleQuickAddForeign = (addAmount) => {
+    const curVal = Number(stripCommaNumber(foreignInput)) || 0;
+    const nextVal = curVal + addAmount;
+    setForeignInput(formatCommaNumber(String(nextVal)));
+    setKrwInput(formatCommaNumber(String(Math.round(nextVal * effectiveRate))));
+  };
+
+  const handleResetCalculator = () => {
+    setForeignInput('');
+    setKrwInput('');
+  };
+
+  const quickAmounts = useMemo(() => {
+    if (effectiveRate < 0.2) return [10000, 50000, 100000, 500000];
+    if (effectiveRate < 15) return [100, 500, 1000, 5000];
+    return [10, 50, 100, 500];
+  }, [effectiveRate]);
+
+  const unitRateBadgeText = useMemo(() => {
+    if (effectiveRate < 0.2) {
+      return `1,000 ${calcCurrency} ≈ ₩${Math.round(effectiveRate * 1000).toLocaleString()} (10만 ${currentCurrencyObj?.symbol || calcCurrency} ≈ ₩${Math.round(effectiveRate * 100000).toLocaleString()})`;
+    }
+    if (effectiveRate < 20) {
+      return `100 ${calcCurrency} ≈ ₩${Math.round(effectiveRate * 100).toLocaleString()}`;
+    }
+    return `1 ${calcCurrency} ≈ ₩${Math.round(effectiveRate).toLocaleString()}`;
+  }, [calcCurrency, effectiveRate, currentCurrencyObj]);
 
   // 앱 전환(카카오톡/사파리 백그라운드 등) 후 돌아와도 작성 중인 모달과 입력값 자동 복원
   const savedDraft = useMemo(() => loadSavedTripDraft(), []);
@@ -226,6 +425,112 @@ export default function HomePage() {
 
   return (
     <div className="space-y-5">
+      {/* 0. 홈 최상단: 가장 빠른 여행지 맞춤 실시간 양방향 환율 계산기 */}
+      <section className="glass-card rounded-3xl p-4 border border-white/15 shadow-lg space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-bold text-emerald-300 truncate">
+              <span>{nearestTrip ? nearestTrip.cover_emoji || '✈️' : '💱'}</span>
+              <span className="truncate">
+                {nearestTrip
+                  ? `가장 빠른 여행 · ${nearestTrip.destination || nearestTrip.title} 환율`
+                  : '여행지 환율 계산기'}
+              </span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-zinc-400 font-medium">
+              {unitRateBadgeText}
+            </span>
+            <button
+              type="button"
+              onClick={refreshLiveExchangeRates}
+              disabled={isRefreshingRate}
+              title="실시간 환율 새로고침"
+              aria-label="실시간 환율 새로고침"
+              className="w-7 h-7 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 inline-flex items-center justify-center text-zinc-300 transition active:scale-95"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingRate ? 'animate-spin text-sky-400' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* 양방향 즉시 환산 입력 영역 (현지 통화 <-> 대한민국 원) */}
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2">
+          {/* 현지 통화 선택 + 금액 입력 */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-black/40 border border-white/10 focus-within:border-sky-400/60 transition">
+            <select
+              aria-label="환율 계산 통화 선택"
+              value={calcCurrency}
+              onChange={(e) => handleSelectCalcCurrency(e.target.value)}
+              className="bg-transparent text-xs font-bold text-white focus:outline-none pr-1 cursor-pointer shrink-0"
+            >
+              {foreignCurrencies.map((c) => (
+                <option key={c.code} value={c.code} className="bg-zinc-900 text-white">
+                  {c.flag} {c.code} ({c.name})
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={foreignInput}
+              onChange={(e) => handleForeignInputChange(e.target.value)}
+              placeholder="0"
+              aria-label="현지 통화 금액"
+              className="w-full bg-transparent text-right text-base font-extrabold text-sky-300 placeholder:text-zinc-600 focus:outline-none"
+            />
+            <span className="text-xs font-bold text-zinc-400 shrink-0">
+              {currentCurrencyObj?.symbol || calcCurrency}
+            </span>
+          </div>
+
+          <div className="hidden sm:flex items-center justify-center text-zinc-500">
+            <ArrowRightLeft className="w-4 h-4" />
+          </div>
+
+          {/* 대한민국 원화(KRW) 입력 */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-black/40 border border-white/10 focus-within:border-emerald-400/60 transition">
+            <span className="text-xs font-bold text-zinc-300 shrink-0 flex items-center gap-1">
+              <span>🇰🇷</span>
+              <span>KRW (원)</span>
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={krwInput}
+              onChange={(e) => handleKrwInputChange(e.target.value)}
+              placeholder="0"
+              aria-label="대한민국 원화 금액"
+              className="w-full bg-transparent text-right text-base font-extrabold text-emerald-300 placeholder:text-zinc-600 focus:outline-none"
+            />
+            <span className="text-xs font-bold text-zinc-400 shrink-0">₩</span>
+          </div>
+        </div>
+
+        {/* 빠른 단위 금액 추가 칩 */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+          {quickAmounts.map((amt) => (
+            <button
+              key={amt}
+              type="button"
+              onClick={() => handleQuickAddForeign(amt)}
+              className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-zinc-200 whitespace-nowrap transition active:scale-95"
+            >
+              +{amt.toLocaleString()} {calcCurrency}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handleResetCalculator}
+            className="ml-auto px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/15 border border-white/10 text-[11px] font-semibold text-zinc-400 hover:text-rose-300 whitespace-nowrap transition active:scale-95"
+          >
+            초기화
+          </button>
+        </div>
+      </section>
+
       {/* 1. 메인 D-Day 히어로 대시보드 카드 (아직 여행 기간이 지나지 않은 대표 여행) */}
       {!activeTrip ? (
         <section className="glass-card rounded-3xl p-8 text-center space-y-3 border border-white/15">
