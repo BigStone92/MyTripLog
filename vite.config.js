@@ -8,6 +8,18 @@ export default defineConfig({
     port: 5174,
     host: '0.0.0.0',
     allowedHosts: true,
+    watch: {
+      ignored: [
+        '**/.agents/**',
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/backend/**',
+        '**/*.db*',
+        '**/*.log',
+        '**/*.pid',
+      ],
+    },
     proxy: {
       '/api': {
         target: process.env.VITE_MACMINI_API_URL || 'http://127.0.0.1:8050',

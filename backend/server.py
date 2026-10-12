@@ -33,13 +33,13 @@ def now_iso() -> str:
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 
 def init_db() -> None:
     with get_conn() as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS trips (
@@ -310,9 +310,7 @@ def apply_upsert_expense(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
     )
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
+init_db()
 
 
 @app.get("/api/health")
@@ -323,7 +321,6 @@ def health_check() -> Dict[str, Any]:
 @app.get("/api/bootstrap")
 def get_bootstrap_data() -> Dict[str, Any]:
     """앱 초기 진입 또는 동기화 직후 전체 최신 스냅샷 반환"""
-    init_db()
     with get_conn() as conn:
         trips = [
             serialize_trip(r)
@@ -405,7 +402,6 @@ def sync_offline_queue(batch: SyncBatchRequest) -> Dict[str, Any]:
     오프라인(IndexedDB sync_queue)에서 누적된 변경 작업을 일괄 반영(Idempotent Upsert/Delete)하고
     최신 전체 스냅샷을 반환합니다.
     """
-    init_db()
     applied_ids: List[str] = []
     with get_conn() as conn:
         for item in batch.actions:
