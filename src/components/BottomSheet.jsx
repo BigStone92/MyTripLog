@@ -50,7 +50,10 @@ export default function BottomSheet({ isOpen, onClose, title, children }) {
       ref={dialogRef}
       closedby="any"
       aria-labelledby={titleId}
-      onClose={() => onClose?.()}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose?.();
+      }}
       onClick={handleBackdropClick}
       className="bottom-sheet"
     >

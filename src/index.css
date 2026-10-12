@@ -15,6 +15,17 @@
     -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: none;
   }
+
+  /* iOS Safari 날짜/시간 입력 박스 그리드 침범(Overflow) 원천 방지 */
+  input[type="date"],
+  input[type="time"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 /* Apple HIG Dark Glassmorphism Surface */

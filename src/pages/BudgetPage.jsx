@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
 import {
-  EXCHANGE_RATES,
+  getMergedCurrencies,
   getTripDurationDays,
   toKrwAmount,
   useTripStore,
@@ -51,22 +51,21 @@ const EXPENSE_CATEGORIES = {
   },
 };
 
-const CURRENCY_SYMBOLS = {
-  KRW: '₩',
-  JPY: '¥',
-  USD: '$',
-  EUR: '€',
-};
-
 export default function BudgetPage() {
   const trips = useTripStore((s) => s.trips);
   const expenses = useTripStore((s) => s.expenses);
+  const customCurrencies = useTripStore((s) => s.customCurrencies);
   const activeTripId = useTripStore((s) => s.activeTripId);
   const saveExpense = useTripStore((s) => s.saveExpense);
   const deleteExpense = useTripStore((s) => s.deleteExpense);
   const isOnline = useTripStore((s) => s.isOnline);
   const pendingSyncCount = useTripStore((s) => s.pendingSyncCount);
   const flushSyncQueue = useTripStore((s) => s.flushSyncQueue);
+
+  const currenciesMap = useMemo(
+    () => getMergedCurrencies(customCurrencies),
+    [customCurrencies]
+  );
 
   const activeTrip = trips.find((t) => t.id === activeTripId) || trips[0];
   const durationDays = activeTrip
@@ -138,7 +137,7 @@ export default function BudgetPage() {
     setIsAddOpen(false);
   };
 
-  const previewKrw = toKrwAmount(form.amount, form.currency);
+  const previewKrw = toKrwAmount(form.amount, form.currency, customCurrencies);
 
   return (
     <div className="space-y-4">
@@ -293,7 +292,7 @@ export default function BudgetPage() {
           filteredExpenses.map((item) => {
             const meta = EXPENSE_CATEGORIES[item.category] || EXPENSE_CATEGORIES.tour;
             const Icon = meta.icon;
-            const sym = CURRENCY_SYMBOLS[item.currency] || '';
+            const sym = currenciesMap[item.currency]?.symbol || '';
 
             return (
               <div
@@ -392,9 +391,9 @@ export default function BudgetPage() {
                 onChange={(e) => setForm({ ...form, currency: e.target.value })}
                 className="w-full px-3 py-2.5 rounded-2xl bg-zinc-900 border border-white/10 text-sm text-white focus:outline-none focus:border-emerald-400"
               >
-                {Object.keys(EXCHANGE_RATES).map((code) => (
-                  <option key={code} value={code}>
-                    {code}
+                {Object.values(currenciesMap).map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.code}
                   </option>
                 ))}
               </select>

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { macMiniApi } from '../services/api.js';
+import { DEFAULT_CURRENCIES } from '../services/countries.js';
 import {
   enqueueSyncAction,
   getSyncQueue,
@@ -8,17 +9,33 @@ import {
   saveLocalSnapshot,
 } from '../services/offlineDb.js';
 
-// 기본 환율 테이블 (오프라인에서도 즉시 원화 환산)
-export const EXCHANGE_RATES = {
-  KRW: 1,
-  JPY: 9.2,
-  USD: 1380,
-  EUR: 1500,
-};
+const CUSTOM_CURRENCIES_KEY = 'mytriplog_custom_currencies';
 
-export function toKrwAmount(amount, currency = 'KRW') {
-  const rate = EXCHANGE_RATES[currency] || 1;
-  return Math.round((Number(amount) || 0) * rate);
+function loadSavedCustomCurrencies() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_CURRENCIES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+export function getMergedCurrencies(customMap = {}) {
+  return {
+    ...DEFAULT_CURRENCIES,
+    ...loadSavedCustomCurrencies(),
+    ...customMap,
+  };
+}
+
+export const EXCHANGE_RATES = Object.fromEntries(
+  Object.entries(DEFAULT_CURRENCIES).map(([k, v]) => [k, v.rate])
+);
+
+export function toKrwAmount(amount, currency = 'KRW', customMap = {}) {
+  const all = getMergedCurrencies(customMap);
+  const rate = all[currency]?.rate ?? EXCHANGE_RATES[currency] ?? 1;
+  return Math.round((Number(amount) || 0) * Number(rate));
 }
 
 export function calculateDday(startDateStr, endDateStr) {
@@ -59,7 +76,7 @@ const FALLBACK_SNAPSHOT = {
       end_date: '2026-10-27',
       total_budget: 1200000,
       currency: 'JPY',
-      cover_emoji: '🗼',
+      cover_emoji: '🇯🇵',
       status: 'planned',
       memo: '시부야 스카이 선셋 예약 완료. 스이카 카드 충전 필수!',
       photos: [],
@@ -73,7 +90,7 @@ const FALLBACK_SNAPSHOT = {
       end_date: '2026-05-18',
       total_budget: 800000,
       currency: 'KRW',
-      cover_emoji: '🍊',
+      cover_emoji: '🇰🇷',
       status: 'completed',
       memo: '협재 해수욕장 노을이 정말 아름다웠던 여행. 다음엔 우도에서 1박 하기!',
       photos: [
@@ -134,6 +151,7 @@ export const useTripStore = create((set, get) => ({
   trips: [],
   schedules: [],
   expenses: [],
+  customCurrencies: loadSavedCustomCurrencies(),
   activeTripId: 'trip-tokyo-2026',
   selectedDay: 1,
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -147,6 +165,24 @@ export const useTripStore = create((set, get) => ({
     get().persistLocal();
   },
   setSelectedDay: (day) => set({ selectedDay: day }),
+
+  registerCustomCurrency: (currencyObj) => {
+    const code = currencyObj.code.trim().toUpperCase();
+    if (!code) return null;
+    const entry = {
+      code,
+      name: currencyObj.name?.trim() || `${code} 통화`,
+      symbol: currencyObj.symbol?.trim() || code,
+      rate: Number(currencyObj.rate) || 1,
+      flag: currencyObj.flag || '💱',
+    };
+    const nextCustom = { ...get().customCurrencies, [code]: entry };
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CUSTOM_CURRENCIES_KEY, JSON.stringify(nextCustom));
+    }
+    set({ customCurrencies: nextCustom });
+    return entry;
+  },
 
   persistLocal: async () => {
     const { trips, schedules, expenses, activeTripId, lastSyncedAt } = get();
@@ -198,7 +234,6 @@ export const useTripStore = create((set, get) => ({
     }
   },
 
-  // --- [계획 & 추억] Trip Actions ---
   saveTrip: async (tripData) => {
     const now = new Date().toISOString();
     const existing = get().trips.find((t) => t.id === tripData.id);
@@ -242,7 +277,6 @@ export const useTripStore = create((set, get) => ({
     await get().recordMutation('trip', 'delete', { id: tripId });
   },
 
-  // --- [일정] Schedule Actions ---
   saveSchedule: async (scheduleData) => {
     const now = new Date().toISOString();
     const tripId = scheduleData.trip_id || get().activeTripId;
@@ -297,7 +331,6 @@ export const useTripStore = create((set, get) => ({
     await get().recordMutation('schedule', 'delete', { id: scheduleId });
   },
 
-  // --- [예산] Expense Actions ---
   saveExpense: async (expenseData) => {
     const now = new Date().toISOString();
     const currency = expenseData.currency || 'KRW';
@@ -309,7 +342,7 @@ export const useTripStore = create((set, get) => ({
       title: expenseData.title.trim(),
       amount,
       currency,
-      krw_amount: toKrwAmount(amount, currency),
+      krw_amount: toKrwAmount(amount, currency, get().customCurrencies),
       category: expenseData.category || 'food',
       spent_at: expenseData.spent_at || now,
       updated_at: now,

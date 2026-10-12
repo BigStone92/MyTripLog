@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Calendar,
@@ -10,60 +10,114 @@ import {
   Trash2,
   Edit3,
   ChevronRight,
+  Search,
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
+import { searchFlagsAndIcons } from '../services/countries.js';
 import {
   calculateDday,
+  getMergedCurrencies,
   getTripDurationDays,
   useTripStore,
-} from '../store/useTripStore';
+} from '../store/useTripStore.js';
 
-const EMOJI_OPTIONS = ['✈️', '🗼', '🍊', '🏖️', '🏔️', '🗽', '🥐', '⛩️', '🏕️', '🚢'];
-const CURRENCY_OPTIONS = [
-  { code: 'KRW', label: '🇰🇷 KRW (원)' },
-  { code: 'JPY', label: '🇯🇵 JPY (엔)' },
-  { code: 'USD', label: '🇺🇸 USD (달러)' },
-  { code: 'EUR', label: '🇪🇺 EUR (유로)' },
-];
+const TRIP_DRAFT_STORAGE_KEY = 'mytriplog_trip_form_draft_v1';
+
+function createInitialForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    title: '',
+    destination: '',
+    start_date: today,
+    end_date: today,
+    total_budget: 1000000,
+    currency: 'KRW',
+    cover_emoji: '✈️',
+    memo: '',
+  };
+}
+
+function loadSavedTripDraft() {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(TRIP_DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 export default function HomePage() {
   const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const schedules = useTripStore((s) => s.schedules);
   const expenses = useTripStore((s) => s.expenses);
+  const customCurrencies = useTripStore((s) => s.customCurrencies);
+  const registerCustomCurrency = useTripStore((s) => s.registerCustomCurrency);
   const activeTripId = useTripStore((s) => s.activeTripId);
   const setActiveTripId = useTripStore((s) => s.setActiveTripId);
   const saveTrip = useTripStore((s) => s.saveTrip);
   const deleteTrip = useTripStore((s) => s.deleteTrip);
 
   const activeTrip = trips.find((t) => t.id === activeTripId) || trips[0];
+  const allCurrencies = useMemo(
+    () => Object.values(getMergedCurrencies(customCurrencies)),
+    [customCurrencies]
+  );
 
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({
-    title: '',
-    destination: '',
-    start_date: '2026-11-01',
-    end_date: '2026-11-04',
-    total_budget: 1000000,
-    currency: 'KRW',
-    cover_emoji: '✈️',
-    memo: '',
+  // 앱 전환(카카오톡/사파리 백그라운드 등) 후 돌아와도 작성 중인 모달과 입력값 자동 복원
+  const savedDraft = useMemo(() => loadSavedTripDraft(), []);
+  const [isSheetOpen, setIsSheetOpen] = useState(() => Boolean(savedDraft?.isOpen));
+  const [editingId, setEditingId] = useState(() => savedDraft?.editingId || null);
+  const [form, setForm] = useState(() => savedDraft?.form || createInitialForm());
+
+  // 대표 아이콘(전 세계 국기) 검색 상태
+  const [flagQuery, setFlagQuery] = useState('');
+  const filteredFlags = useMemo(() => searchFlagsAndIcons(flagQuery), [flagQuery]);
+
+  // 미등록 현지 통화 직접 등록 상태
+  const [showCustomCurrencyBox, setShowCustomCurrencyBox] = useState(false);
+  const [customCurrencyForm, setCustomCurrencyForm] = useState({
+    code: '',
+    name: '',
+    rate: '',
   });
 
+  // 작성 중인 내용 실시간 localStorage 자동 백업
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    if (isSheetOpen) {
+      localStorage.setItem(
+        TRIP_DRAFT_STORAGE_KEY,
+        JSON.stringify({ isOpen: true, editingId, form })
+      );
+    } else {
+      localStorage.removeItem(TRIP_DRAFT_STORAGE_KEY);
+    }
+  }, [isSheetOpen, editingId, form]);
+
+  const closeAndClearDraft = () => {
+    setIsSheetOpen(false);
+    setShowCustomCurrencyBox(false);
+    setFlagQuery('');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(TRIP_DRAFT_STORAGE_KEY);
+    }
+  };
+
   const openNewTripModal = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    setEditingId(null);
-    setForm({
-      title: '',
-      destination: '',
-      start_date: today,
-      end_date: today,
-      total_budget: 1000000,
-      currency: 'KRW',
-      cover_emoji: '✈️',
-      memo: '',
-    });
+    // 만약 이전에 작성하다가 앱 전환 등으로 남아 있던 신규 드래프트가 있으면 이어서 작성
+    const draft = loadSavedTripDraft();
+    if (draft?.form && !draft.editingId && (draft.form.title || draft.form.destination)) {
+      setEditingId(null);
+      setForm(draft.form);
+    } else {
+      setEditingId(null);
+      setForm(createInitialForm());
+    }
+    setFlagQuery('');
+    setShowCustomCurrencyBox(false);
     setIsSheetOpen(true);
   };
 
@@ -79,7 +133,52 @@ export default function HomePage() {
       cover_emoji: trip.cover_emoji || '✈️',
       memo: trip.memo || '',
     });
+    setFlagQuery('');
+    setShowCustomCurrencyBox(false);
     setIsSheetOpen(true);
+  };
+
+  // 출발일 변경 시 종료일이 이전 날짜이거나 기존 출발일과 같으면 해당 연·월·일로 자동 이동
+  const handleStartDateChange = (nextStartDate) => {
+    setForm((prev) => {
+      const shouldSyncEndDate =
+        !prev.end_date || prev.end_date < nextStartDate || prev.end_date === prev.start_date;
+      return {
+        ...prev,
+        start_date: nextStartDate,
+        end_date: shouldSyncEndDate ? nextStartDate : prev.end_date,
+      };
+    });
+  };
+
+  // 국기 선택 시 대표 아이콘 변경 + 해당 국가의 현지 통화 자동 매칭
+  const handleSelectFlagItem = (item) => {
+    setForm((prev) => ({
+      ...prev,
+      cover_emoji: item.emoji,
+      currency: item.currency && allCurrencies.some((c) => c.code === item.currency)
+        ? item.currency
+        : prev.currency,
+    }));
+  };
+
+  const handleRegisterCustomCurrency = () => {
+    const code = customCurrencyForm.code.trim().toUpperCase();
+    const rate = Number(customCurrencyForm.rate);
+    if (!code || !rate || rate <= 0) return;
+
+    const entry = registerCustomCurrency({
+      code,
+      name: customCurrencyForm.name.trim() || `${code} 통화`,
+      symbol: code,
+      rate,
+      flag: form.cover_emoji || '💱',
+    });
+    if (entry) {
+      setForm((prev) => ({ ...prev, currency: entry.code }));
+      setCustomCurrencyForm({ code: '', name: '', rate: '' });
+      setShowCustomCurrencyBox(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -89,7 +188,7 @@ export default function HomePage() {
       ...form,
       id: editingId || undefined,
     });
-    setIsSheetOpen(false);
+    closeAndClearDraft();
   };
 
   const toggleArchiveStatus = async (trip) => {
@@ -142,7 +241,7 @@ export default function HomePage() {
                 {activeTrip.cover_emoji} {activeTrip.title}
               </h1>
 
-              <p className="flex items-center gap-1.5 text-xs text-zinc-300">
+              <p className="flex items-center gap-1.5 text-xs text-zinc-300 flex-wrap">
                 <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                 <span>{activeTrip.destination}</span>
                 <span className="text-zinc-500">·</span>
@@ -359,27 +458,54 @@ export default function HomePage() {
       {/* 새 여행 등록 / 수정 네이티브 바텀 시트 */}
       <BottomSheet
         isOpen={isSheetOpen}
-        onClose={() => setIsSheetOpen(false)}
+        onClose={closeAndClearDraft}
         title={editingId ? '여행 정보 수정' : '새 여행 플랜 등록'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <span className="block text-xs font-medium text-zinc-400 mb-2">대표 아이콘</span>
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {EMOJI_OPTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setForm({ ...form, cover_emoji: emoji })}
-                  className={`tap-target rounded-2xl text-xl flex items-center justify-center border ${
-                    form.cover_emoji === emoji
-                      ? 'bg-sky-500/20 border-sky-400'
-                      : 'bg-white/5 border-white/10'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
+          {/* 대표 아이콘 (전 세계 국기 & 테마 아이콘 실시간 검색) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-zinc-400">
+                대표 아이콘 (선택됨: <strong className="text-base text-white">{form.cover_emoji}</strong>)
+              </span>
+              <span className="text-[11px] text-zinc-500">전 세계 249개국 국기 지원</span>
+            </div>
+
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="search"
+                placeholder="국가 또는 도시 검색 (예: 베트남, 다낭, 일본, 스위스...)"
+                value={flagQuery}
+                onChange={(e) => setFlagQuery(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs text-white focus:outline-none focus:border-sky-400"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5">
+              {filteredFlags.slice(0, 40).map((item) => {
+                const isSelected = form.cover_emoji === item.emoji;
+                return (
+                  <button
+                    key={`${item.code}-${item.emoji}`}
+                    type="button"
+                    onClick={() => handleSelectFlagItem(item)}
+                    className={`tap-target shrink-0 px-2.5 py-1.5 rounded-2xl flex items-center gap-1.5 border transition-colors ${
+                      isSelected
+                        ? 'bg-sky-500/25 border-sky-400 text-white'
+                        : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="text-lg leading-none">{item.emoji}</span>
+                    <span className="text-[11px] font-medium whitespace-nowrap">{item.name}</span>
+                  </button>
+                );
+              })}
+              {filteredFlags.length === 0 && (
+                <p className="text-xs text-zinc-500 py-2 px-1">
+                  일치하는 국가가 없습니다. 한글 국가명(예: 베트남, 프랑스)으로 검색해 보세요.
+                </p>
+              )}
             </div>
           </div>
 
@@ -389,7 +515,7 @@ export default function HomePage() {
               <input
                 type="text"
                 required
-                placeholder="예: 오사카 3박 4일 식도락 여행"
+                placeholder="예: 다낭&호이안 3박 4일"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
@@ -401,25 +527,26 @@ export default function HomePage() {
               <input
                 type="text"
                 required
-                placeholder="예: 오사카, 일본"
+                placeholder="예: 다낭&호이안, 베트남"
                 value={form.destination}
                 onChange={(e) => setForm({ ...form, destination: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
               />
             </div>
 
+            {/* 출발일 / 종료일 (iOS Safari 박스 겹침 방지 min-w-0 & 출발일 기준 종료일 자동 이동) */}
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-medium text-zinc-400 mb-1">출발일</label>
                 <input
                   type="date"
                   required
                   value={form.start_date}
-                  onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className="w-full min-w-0 max-w-full block px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-medium text-zinc-400 mb-1">종료일</label>
                 <input
                   type="date"
@@ -427,13 +554,14 @@ export default function HomePage() {
                   min={form.start_date}
                   value={form.end_date}
                   onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
+                  className="w-full min-w-0 max-w-full block px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
                 />
               </div>
             </div>
 
+            {/* 총 예산 / 현지 주 통화 */}
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-medium text-zinc-400 mb-1">
                   총 예산 (원화 ₩ 기준)
                 </label>
@@ -444,24 +572,93 @@ export default function HomePage() {
                   required
                   value={form.total_budget}
                   onChange={(e) => setForm({ ...form, total_budget: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
+                  className="w-full min-w-0 px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">현지 주 통화</label>
+              <div className="min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-zinc-400">현지 주 통화</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomCurrencyBox((v) => !v)}
+                    className="text-[11px] font-semibold text-sky-400 hover:underline"
+                  >
+                    {showCustomCurrencyBox ? '닫기' : '+ 직접 추가'}
+                  </button>
+                </div>
                 <select
                   value={form.currency}
-                  onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-zinc-900 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
+                  onChange={(e) => {
+                    if (e.target.value === '__ADD_CUSTOM__') {
+                      setShowCustomCurrencyBox(true);
+                    } else {
+                      setForm({ ...form, currency: e.target.value });
+                    }
+                  }}
+                  className="w-full min-w-0 px-2.5 py-2.5 rounded-2xl bg-zinc-900 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
                 >
-                  {CURRENCY_OPTIONS.map((c) => (
+                  {allCurrencies.map((c) => (
                     <option key={c.code} value={c.code}>
-                      {c.label}
+                      {c.flag} {c.code} ({c.name})
                     </option>
                   ))}
+                  <option value="__ADD_CUSTOM__">➕ 새 통화 직접 등록...</option>
                 </select>
               </div>
             </div>
+
+            {/* 미등록 통화 직접 추가 패널 */}
+            {showCustomCurrencyBox && (
+              <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-400/30 space-y-2.5">
+                <p className="text-xs font-semibold text-sky-300">
+                  새로운 현지 통화 & 환율 등록 (가계부 자동 연동)
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    maxLength={5}
+                    placeholder="코드 (예: VND)"
+                    value={customCurrencyForm.code}
+                    onChange={(e) =>
+                      setCustomCurrencyForm({ ...customCurrencyForm, code: e.target.value })
+                    }
+                    className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white uppercase"
+                  />
+                  <input
+                    type="text"
+                    placeholder="통화명 (예: 동)"
+                    value={customCurrencyForm.name}
+                    onChange={(e) =>
+                      setCustomCurrencyForm({ ...customCurrencyForm, name: e.target.value })
+                    }
+                    className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"
+                  />
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="1단위당 원화(₩)"
+                    value={customCurrencyForm.rate}
+                    onChange={(e) =>
+                      setCustomCurrencyForm({ ...customCurrencyForm, rate: e.target.value })
+                    }
+                    className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">
+                    예: 100동=5.5원이면 1단위당 <code>0.055</code> 입력
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRegisterCustomCurrency}
+                    className="px-3 py-1.5 rounded-xl bg-sky-400 text-zinc-950 font-bold text-xs"
+                  >
+                    통화 등록
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1">
@@ -469,7 +666,7 @@ export default function HomePage() {
               </label>
               <textarea
                 rows={2}
-                placeholder="항공편 번호, 패스권, 숙소 체크인 시간 등"
+                placeholder="항공편 번호, 패스권, 숙소 체크인 시간 등 (다른 앱에 다녀와도 자동 보관됨)"
                 value={form.memo}
                 onChange={(e) => setForm({ ...form, memo: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
