@@ -54,6 +54,7 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'planned',
                 memo TEXT NOT NULL DEFAULT '',
                 photos_json TEXT NOT NULL DEFAULT '[]',
+                extra_json TEXT NOT NULL DEFAULT '{}',
                 updated_at TEXT NOT NULL
             );
 
@@ -93,6 +94,12 @@ def init_db() -> None:
             );
             """
         )
+
+        # 기존 DB에 extra_json 컬럼이 없을 경우 무중단 자동 추가
+        try:
+            conn.execute("ALTER TABLE trips ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}';")
+        except sqlite3.OperationalError:
+            pass
 
         # 최초 DB 생성 시에만 1회 시딩 (사용자가 샘플을 모두 삭제해도 재기동 시 복구되지 않도록 보호)
         seed_done = conn.execute(
@@ -198,6 +205,9 @@ class TripPayload(BaseModel):
     status: str = "planned"
     memo: str = ""
     photos: List[Dict[str, Any]] = Field(default_factory=list)
+    flights: List[Dict[str, Any]] = Field(default_factory=list)
+    accommodations: List[Dict[str, Any]] = Field(default_factory=list)
+    checklist: List[Dict[str, Any]] = Field(default_factory=list)
     updated_at: Optional[str] = None
 
 
@@ -244,17 +254,33 @@ class SyncBatchRequest(BaseModel):
 def serialize_trip(row: sqlite3.Row) -> Dict[str, Any]:
     d = dict(row)
     d["photos"] = json.loads(d.pop("photos_json", "[]") or "[]")
+    extra_raw = d.pop("extra_json", "{}") or "{}"
+    try:
+        extra = json.loads(extra_raw)
+    except Exception:
+        extra = {}
+    d["flights"] = extra.get("flights", [])
+    d["accommodations"] = extra.get("accommodations", [])
+    d["checklist"] = extra.get("checklist", [])
     return d
 
 
 def apply_upsert_trip(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
     ts = p.get("updated_at") or now_iso()
     photos_json = json.dumps(p.get("photos", []), ensure_ascii=False)
+    extra_json = json.dumps(
+        {
+            "flights": p.get("flights", []),
+            "accommodations": p.get("accommodations", []),
+            "checklist": p.get("checklist", []),
+        },
+        ensure_ascii=False,
+    )
     conn.execute(
         """
         INSERT OR REPLACE INTO trips
-        (id, title, destination, start_date, end_date, total_budget, currency, cover_emoji, status, memo, photos_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, title, destination, start_date, end_date, total_budget, currency, cover_emoji, status, memo, photos_json, extra_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             p["id"],
@@ -268,6 +294,7 @@ def apply_upsert_trip(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
             p.get("status", "planned"),
             p.get("memo", ""),
             photos_json,
+            extra_json,
             ts,
         ),
     )

@@ -88,6 +88,50 @@ export function getTripDurationDays(startDateStr, endDateStr) {
   return Math.max(1, Math.min(days, 30));
 }
 
+export function getLocalTodayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// 여행 종료일이 오늘 이전이거나 status === 'completed' 이면 '추억(지난 여행)'으로 분류
+export function isTripPast(trip) {
+  if (!trip) return false;
+  if (trip.status === 'completed') return true;
+  const today = getLocalTodayStr();
+  const endDate = trip.end_date || trip.start_date;
+  return Boolean(endDate && endDate < today);
+}
+
+// "2027.3.25 - 3.28" 포맷 변환 헬퍼
+export function formatDotDateRange(startDateStr, endDateStr) {
+  if (!startDateStr) return '';
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  if (!endDateStr || endDateStr === startDateStr) {
+    return `${sy}.${sm}.${sd}`;
+  }
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  if (sy === ey) {
+    return `${sy}.${sm}.${sd} - ${em}.${ed}`;
+  }
+  return `${sy}.${sm}.${sd} - ${ey}.${em}.${ed}`;
+}
+
+// Day N -> "3.25/목" 포맷 변환 헬퍼
+const KOR_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+export function getDayDateLabel(startDateStr, dayNumber) {
+  if (!startDateStr) return '';
+  const d = new Date(`${startDateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + (Number(dayNumber) - 1));
+  const m = d.getMonth() + 1;
+  const date = d.getDate();
+  const dow = KOR_WEEKDAYS[d.getDay()];
+  return `${m}.${date}/${dow}`;
+}
+
 const FALLBACK_SNAPSHOT = {
   trips: [
     {
@@ -272,6 +316,13 @@ export const useTripStore = create((set, get) => ({
       status: tripData.status || existing?.status || 'planned',
       memo: tripData.memo !== undefined ? tripData.memo : existing?.memo || '',
       photos: tripData.photos !== undefined ? tripData.photos : existing?.photos || [],
+      flights: tripData.flights !== undefined ? tripData.flights : existing?.flights || [],
+      accommodations:
+        tripData.accommodations !== undefined
+          ? tripData.accommodations
+          : existing?.accommodations || [],
+      checklist:
+        tripData.checklist !== undefined ? tripData.checklist : existing?.checklist || [],
       updated_at: now,
     };
 

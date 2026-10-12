@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
+  ArrowLeft,
   Plus,
   Trash2,
   Utensils,
@@ -11,8 +13,10 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
+import SyncBadge from '../components/SyncBadge';
 import {
   formatCommaNumber,
+  formatDotDateRange,
   getMergedCurrencies,
   getTripDurationDays,
   stripCommaNumber,
@@ -54,6 +58,7 @@ const EXPENSE_CATEGORIES = {
 };
 
 export default function BudgetPage() {
+  const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const expenses = useTripStore((s) => s.expenses);
   const customCurrencies = useTripStore((s) => s.customCurrencies);
@@ -143,6 +148,31 @@ export default function BudgetPage() {
 
   return (
     <div className="space-y-4">
+      {/* 상단 가계부 네비게이션 헤더 (일정 상세로 돌아가기) */}
+      <header className="sticky top-0 z-30 -mx-4 px-4 py-2.5 glass-panel border-x-0 border-t-0 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate('/schedule')}
+            aria-label="일정 상세로 돌아가기"
+            className="tap-target inline-flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 text-zinc-200"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold text-white truncate">
+              {activeTrip ? `${activeTrip.cover_emoji} ${activeTrip.title} · 가계부` : '가계부'}
+            </h1>
+            {activeTrip && (
+              <p className="text-[11px] text-zinc-400">
+                {formatDotDateRange(activeTrip.start_date, activeTrip.end_date)}
+              </p>
+            )}
+          </div>
+        </div>
+        <SyncBadge />
+      </header>
+
       {/* 1. 예산 대비 지출 비율 메인 카드 & 프로그레스 바 */}
       <section className="glass-card rounded-3xl p-5 space-y-4 border border-white/15">
         <div className="flex items-start justify-between gap-2">

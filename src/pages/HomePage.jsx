@@ -18,8 +18,10 @@ import { searchFlagsAndIcons } from '../services/countries.js';
 import {
   calculateDday,
   formatCommaNumber,
+  getLocalTodayStr,
   getMergedCurrencies,
   getTripDurationDays,
+  isTripPast,
   stripCommaNumber,
   useTripStore,
 } from '../store/useTripStore.js';
@@ -27,7 +29,7 @@ import {
 const TRIP_DRAFT_STORAGE_KEY = 'mytriplog_trip_form_draft_v1';
 
 function createInitialForm() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
   return {
     title: '',
     destination: '',
@@ -63,7 +65,18 @@ export default function HomePage() {
   const saveTrip = useTripStore((s) => s.saveTrip);
   const deleteTrip = useTripStore((s) => s.deleteTrip);
 
-  const activeTrip = trips.find((t) => t.id === activeTripId) || trips[0];
+  // 홈: 아직 여행 기간이 지나지 않은 예정/진행 중 여행 일정만 필터링
+  const upcomingTrips = useMemo(
+    () =>
+      trips
+        .filter((t) => !isTripPast(t))
+        .sort((a, b) => a.start_date.localeCompare(b.start_date)),
+    [trips]
+  );
+
+  const activeTrip =
+    upcomingTrips.find((t) => t.id === activeTripId) || upcomingTrips[0] || null;
+
   const allCurrencies = useMemo(
     () => Object.values(getMergedCurrencies(customCurrencies)),
     [customCurrencies]
@@ -187,6 +200,11 @@ export default function HomePage() {
     closeAndClearDraft();
   };
 
+  const handleEnterTrip = (tripId) => {
+    setActiveTripId(tripId);
+    navigate('/schedule');
+  };
+
   const toggleArchiveStatus = async (trip) => {
     const nextStatus = trip.status === 'completed' ? 'planned' : 'completed';
     await saveTrip({ ...trip, status: nextStatus });
@@ -208,13 +226,13 @@ export default function HomePage() {
 
   return (
     <div className="space-y-5">
-      {/* 1. 메인 D-Day 히어로 대시보드 카드 (또는 전체 여행 삭제 시 빈 상태 안내) */}
+      {/* 1. 메인 D-Day 히어로 대시보드 카드 (아직 여행 기간이 지나지 않은 대표 여행) */}
       {!activeTrip ? (
         <section className="glass-card rounded-3xl p-8 text-center space-y-3 border border-white/15">
           <p className="text-3xl">✈️</p>
-          <h1 className="text-base font-bold text-white">등록된 여행 플랜이 없습니다</h1>
+          <h1 className="text-base font-bold text-white">예정된 여행 일정이 없습니다</h1>
           <p className="text-xs text-zinc-400">
-            새로운 목적지와 예산을 설정해 나만의 여행 플래너를 시작해 보세요.
+            새로운 여행지를 등록하거나 하단 [추억] 탭에서 지난 여행을 확인해 보세요.
           </p>
           <button
             type="button"
@@ -222,11 +240,17 @@ export default function HomePage() {
             className="tap-target inline-flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs shadow-lg shadow-sky-500/20"
           >
             <Plus className="w-4 h-4" />
-            <span>첫 여행 플랜 등록하기</span>
+            <span>새 여행 일정 등록하기</span>
           </button>
         </section>
       ) : (
-        <section className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-sky-500/20 via-indigo-500/15 to-zinc-900/90 border border-white/15 shadow-xl">
+        <section
+          onClick={() => handleEnterTrip(activeTrip.id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && handleEnterTrip(activeTrip.id)}
+          className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-sky-500/20 via-indigo-500/15 to-zinc-900/90 border border-white/15 shadow-xl cursor-pointer transition active:scale-[0.99]"
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1.5">
               <div className="inline-flex items-center gap-2">
@@ -234,9 +258,7 @@ export default function HomePage() {
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide ${
                     dday.state === 'ongoing'
                       ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/30'
-                      : dday.state === 'upcoming'
-                      ? 'bg-sky-400/20 text-sky-300 border border-sky-400/30'
-                      : 'bg-zinc-500/20 text-zinc-300 border border-white/10'
+                      : 'bg-sky-400/20 text-sky-300 border border-sky-400/30'
                   }`}
                 >
                   {dday.label}
@@ -249,8 +271,10 @@ export default function HomePage() {
                 </span>
               </div>
 
-              <h1 className="text-xl font-bold text-white leading-snug">
-                {activeTrip.cover_emoji} {activeTrip.title}
+              <h1 className="text-xl font-bold text-white leading-snug flex items-center gap-1.5">
+                <span>{activeTrip.cover_emoji}</span>
+                <span>{activeTrip.title}</span>
+                <ChevronRight className="w-4 h-4 text-sky-400 shrink-0" />
               </h1>
 
               <p className="flex items-center gap-1.5 text-xs text-zinc-300 flex-wrap">
@@ -267,7 +291,10 @@ export default function HomePage() {
             <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                onClick={() => openEditTripModal(activeTrip)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditTripModal(activeTrip);
+                }}
                 aria-label="여행 정보 수정"
                 className="tap-target inline-flex items-center justify-center rounded-2xl bg-white/10 hover:bg-white/15 text-zinc-200"
               >
@@ -285,9 +312,12 @@ export default function HomePage() {
 
           {/* 예산 & 일정 요약 바로가기 위젯 */}
           <div className="grid grid-cols-2 gap-3 mt-4">
-            <button
-              type="button"
-              onClick={() => navigate('/budget')}
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveTripId(activeTrip.id);
+                navigate('/budget');
+              }}
               className="tap-target text-left p-3.5 rounded-2xl bg-black/35 hover:bg-black/45 border border-white/10 transition-colors"
             >
               <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
@@ -314,97 +344,60 @@ export default function HomePage() {
                   / ₩{totalBudget.toLocaleString()}
                 </span>
               </p>
-            </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => navigate('/schedule')}
-              className="tap-target text-left p-3.5 rounded-2xl bg-black/35 hover:bg-black/45 border border-white/10 transition-colors flex flex-col justify-between"
-            >
+            <div className="tap-target text-left p-3.5 rounded-2xl bg-black/35 hover:bg-black/45 border border-white/10 transition-colors flex flex-col justify-between">
               <div className="flex items-center justify-between text-xs text-zinc-400">
                 <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-sky-400" /> 등록된 동선
+                  <MapPin className="w-3.5 h-3.5 text-sky-400" /> 일정 상세 보기
                 </span>
-                <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />
+                <ChevronRight className="w-3.5 h-3.5 text-sky-400" />
               </div>
               <div className="mt-1">
-                <p className="text-base font-bold text-white">{tripSchedules.length}개 장소</p>
+                <p className="text-base font-bold text-white">{tripSchedules.length}개 일정</p>
                 <p className="text-[11px] text-zinc-400 truncate">
                   {tripSchedules[0]
                     ? `첫 일정: ${tripSchedules[0].place_name}`
-                    : '탭하여 첫 장소 추가'}
+                    : '탭하여 항공·숙소·장소 등록'}
                 </p>
               </div>
-            </button>
+            </div>
           </div>
 
           <div className="mt-3.5 pt-3 border-t border-white/10 flex items-center justify-between">
-            <span className="text-xs text-zinc-400">
-              상태: {activeTrip.status === 'completed' ? '추억 보관됨' : '계획/진행 중'}
+            <span className="text-xs text-sky-300 font-medium">
+              카드를 터치하면 상세 일정으로 이동합니다 →
             </span>
             <button
               type="button"
-              onClick={() => toggleArchiveStatus(activeTrip)}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleArchiveStatus(activeTrip);
+              }}
               className="tap-target inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-zinc-200"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
-              <span>
-                {activeTrip.status === 'completed' ? '계획 상태로 되돌리기' : '여행 완료 · 추억 아카이빙'}
-              </span>
+              <span>추억으로 이동</span>
             </button>
           </div>
         </section>
       )}
 
-      {/* 2. 다가오는 동선 미리보기 */}
-      <section className="glass-card rounded-3xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-200">핵심 타임라인 프리뷰</h2>
-          <button
-            type="button"
-            onClick={() => navigate('/schedule')}
-            className="text-xs text-sky-400 hover:underline px-2 py-1"
-          >
-            지도 & 순서 편집 →
-          </button>
-        </div>
-
-        {tripSchedules.length === 0 ? (
-          <p className="text-xs text-zinc-400 py-4 text-center">
-            아직 등록된 일정이 없습니다. [일정] 탭에서 장소를 검색해 추가해 보세요.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {tripSchedules.slice(0, 3).map((item, idx) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/5"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-6 h-6 rounded-full bg-sky-500/20 border border-sky-400/30 text-sky-300 text-xs font-bold flex items-center justify-center shrink-0">
-                    {idx + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{item.place_name}</p>
-                    <p className="text-xs text-zinc-400 truncate">
-                      Day {item.day_number} · {item.time_slot} · {item.memo || item.address}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* 3. 전체 여행 리스트 & 새 여행 추가 */}
+      {/* 2. 예정 및 진행 중인 여행 일정 리스트 (선택 시 해당 일정 상세로 즉시 진입) */}
       <section className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-semibold text-zinc-200">내 여행 플랜 ({trips.length})</h2>
+          <div>
+            <h2 className="text-sm font-bold text-white">
+              예정·진행 중인 여행 ({upcomingTrips.length})
+            </h2>
+            <p className="text-[11px] text-zinc-400">
+              여행 일정을 선택하면 항공권·숙소·일자별 상세 일정으로 들어갑니다
+            </p>
+          </div>
           <button
             type="button"
             onClick={openNewTripModal}
-            className="tap-target inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-xs shadow-lg shadow-sky-500/20"
+            className="tap-target inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-xs shadow-lg shadow-sky-500/20 shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>새 여행 등록</span>
@@ -412,20 +405,20 @@ export default function HomePage() {
         </div>
 
         <div className="space-y-2.5">
-          {trips.map((trip) => {
+          {upcomingTrips.map((trip) => {
             const badge = calculateDday(trip.start_date, trip.end_date);
             const isSelected = trip.id === activeTrip?.id;
             return (
               <div
                 key={trip.id}
-                onClick={() => setActiveTripId(trip.id)}
+                onClick={() => handleEnterTrip(trip.id)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && setActiveTripId(trip.id)}
-                className={`glass-card rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                onKeyDown={(e) => e.key === 'Enter' && handleEnterTrip(trip.id)}
+                className={`glass-card rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] ${
                   isSelected
                     ? 'ring-2 ring-sky-400/70 bg-sky-500/10'
-                    : 'hover:bg-white/5 opacity-85'
+                    : 'hover:bg-white/5 opacity-90'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -435,30 +428,44 @@ export default function HomePage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-sky-400">{badge.label}</span>
-                      {trip.status === 'completed' && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
-                          추억 보관
-                        </span>
-                      )}
+                      <span className="text-[10px] text-zinc-400">
+                        {trip.start_date} ~ {trip.end_date}
+                      </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-white truncate">{trip.title}</h3>
+                    <h3 className="text-sm font-semibold text-white truncate mt-0.5">
+                      {trip.title}
+                    </h3>
                     <p className="text-xs text-zinc-400 truncate">
-                      {trip.destination} · ₩{Number(trip.total_budget || 0).toLocaleString()} · {trip.start_date} ~ {trip.end_date}
+                      {trip.destination} · 예산 ₩{Number(trip.total_budget || 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteTrip(trip.id);
-                  }}
-                  aria-label={`${trip.title} 삭제`}
-                  className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditTripModal(trip);
+                    }}
+                    aria-label={`${trip.title} 수정`}
+                    className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-white hover:bg-white/10"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteTrip(trip.id);
+                    }}
+                    aria-label={`${trip.title} 삭제`}
+                    className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <ChevronRight className="w-4 h-4 text-zinc-500 ml-0.5" />
+                </div>
               </div>
             );
           })}

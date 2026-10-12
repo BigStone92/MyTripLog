@@ -1,7 +1,18 @@
-import { useState } from 'react';
-import { Camera, BookOpen, Plus, Trash2, Check, Calendar, MapPin } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Camera,
+  BookOpen,
+  Plus,
+  Trash2,
+  Check,
+  Calendar,
+  MapPin,
+  ChevronRight,
+  RotateCcw,
+} from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
-import { makeId, useTripStore } from '../store/useTripStore';
+import { calculateDday, isTripPast, makeId, useTripStore } from '../store/useTripStore';
 
 // 로컬 사진 파일을 오프라인/SQLite 저장에 적합하도록 경량 WebP/JPEG DataURL로 리사이즈
 function compressImageFile(file, maxWidth = 900) {
@@ -27,13 +38,25 @@ function compressImageFile(file, maxWidth = 900) {
 }
 
 export default function ArchivePage() {
+  const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const expenses = useTripStore((s) => s.expenses);
   const activeTripId = useTripStore((s) => s.activeTripId);
   const setActiveTripId = useTripStore((s) => s.setActiveTripId);
   const saveTrip = useTripStore((s) => s.saveTrip);
+  const deleteTrip = useTripStore((s) => s.deleteTrip);
 
-  const activeTrip = trips.find((t) => t.id === activeTripId) || trips[0];
+  // 추억: 여행 기간이 지났거나(end_date < 오늘) 완료 처리된 지난 여행 일정만 표시
+  const pastTrips = useMemo(
+    () =>
+      trips
+        .filter((t) => isTripPast(t))
+        .sort((a, b) => b.start_date.localeCompare(a.start_date)),
+    [trips]
+  );
+
+  const activeTrip =
+    pastTrips.find((t) => t.id === activeTripId) || pastTrips[0] || null;
 
   const [memoDraft, setMemoDraft] = useState(activeTrip?.memo || '');
   const [savedNotice, setSavedNotice] = useState(false);
@@ -43,9 +66,20 @@ export default function ArchivePage() {
   // 활성 여행이 바뀌면 메모 동기화
   const currentMemo = memoDraft !== undefined ? memoDraft : activeTrip?.memo || '';
 
-  const handleSelectTrip = (trip) => {
+  // 추억에서 여행 일정을 선택하면 해당 일정 상세(/schedule)로 즉시 진입
+  const handleEnterPastTrip = (trip) => {
     setActiveTripId(trip.id);
     setMemoDraft(trip.memo || '');
+    navigate('/schedule');
+  };
+
+  const handleSelectForNote = (trip) => {
+    setActiveTripId(trip.id);
+    setMemoDraft(trip.memo || '');
+  };
+
+  const handleRestoreToHome = async (trip) => {
+    await saveTrip({ ...trip, status: 'planned' });
   };
 
   const handleSaveMemo = async () => {
@@ -89,51 +123,118 @@ export default function ArchivePage() {
 
   return (
     <div className="space-y-5">
-      {/* 1. 아카이브 여행 선택 가로 스크롤 탭 */}
-      <section className="space-y-2">
+      {/* 1. 지난 여행 일정 리스트 (선택 시 해당 여행의 일정 상세 화면으로 이동) */}
+      <section className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h1 className="text-base font-bold text-white flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-purple-400" />
-            <span>여행 추억 아카이브</span>
-          </h1>
-          <span className="text-xs text-zinc-400">
-            완료 {trips.filter((t) => t.status === 'completed').length}건 / 전체 {trips.length}건
-          </span>
+          <div>
+            <h1 className="text-base font-bold text-white flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-purple-400" />
+              <span>추억 · 지난 여행 일정 ({pastTrips.length})</span>
+            </h1>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              여행을 선택하면 해당 여행의 상세 일정·가계부로 들어갑니다
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2.5 overflow-x-auto pb-1">
-          {trips.map((trip) => {
-            const isSelected = trip.id === activeTrip?.id;
-            return (
-              <button
-                key={trip.id}
-                type="button"
-                onClick={() => handleSelectTrip(trip)}
-                className={`tap-target shrink-0 px-3.5 py-2.5 rounded-2xl border text-left transition-all ${
-                  isSelected
-                    ? 'bg-purple-500/20 border-purple-400/50 text-white'
-                    : 'bg-white/5 border-white/10 text-zinc-400'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-xs font-semibold">
-                  <span>{trip.cover_emoji}</span>
-                  <span className="truncate max-w-[130px]">{trip.title}</span>
+        {pastTrips.length === 0 ? (
+          <div className="glass-card rounded-3xl p-8 text-center space-y-2 border border-white/10">
+            <BookOpen className="w-8 h-8 text-zinc-500 mx-auto" />
+            <p className="text-sm font-semibold text-zinc-200">아직 지난 여행 일정이 없습니다</p>
+            <p className="text-xs text-zinc-400">
+              여행 기간이 종료되거나 [홈]에서 추억으로 이동한 여행이 이곳에 보관됩니다.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {pastTrips.map((trip) => {
+              const badge = calculateDday(trip.start_date, trip.end_date);
+              const isSelected = trip.id === activeTrip?.id;
+              return (
+                <div
+                  key={trip.id}
+                  onClick={() => handleEnterPastTrip(trip)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && handleEnterPastTrip(trip)}
+                  className={`glass-card rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] ${
+                    isSelected
+                      ? 'ring-2 ring-purple-400/70 bg-purple-500/10'
+                      : 'hover:bg-white/5 opacity-90'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl shrink-0">
+                      {trip.cover_emoji}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-purple-300">{badge.label}</span>
+                        <span className="text-[10px] text-zinc-400">
+                          {trip.start_date} ~ {trip.end_date}
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-semibold text-white truncate mt-0.5">
+                        {trip.title}
+                      </h3>
+                      <p className="text-xs text-zinc-400 truncate">
+                        {trip.destination} · 사진 {(trip.photos || []).length}장
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectForNote(trip);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-purple-500/20 border border-purple-400/30 text-[11px] font-semibold text-purple-200 hover:bg-purple-500/30"
+                    >
+                      사진·회고
+                    </button>
+                    {trip.status === 'completed' && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRestoreToHome(trip);
+                        }}
+                        title="계획 상태로 되돌리기"
+                        className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-sky-400 hover:bg-white/10"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTrip(trip.id);
+                      }}
+                      aria-label={`${trip.title} 삭제`}
+                      className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <ChevronRight className="w-4 h-4 text-zinc-500" />
+                  </div>
                 </div>
-                <p className="text-[11px] text-zinc-400 mt-0.5">{trip.start_date}</p>
-              </button>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {activeTrip && (
         <>
-          {/* 2. 선택된 여행 요약 및 텍스트 회고록 메모장 */}
+          {/* 2. 선택된 지난 여행 요약 및 텍스트 회고록 메모장 */}
           <section className="glass-card rounded-3xl p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">
-                  {activeTrip.status === 'completed' ? '아카이빙 완료' : '진행/계획 중인 여행'}
+                  추억 회고록 & 앨범
                 </span>
                 <h2 className="text-lg font-bold text-white mt-1">
                   {activeTrip.cover_emoji} {activeTrip.title}
@@ -155,6 +256,13 @@ export default function ArchivePage() {
                 <p className="text-sm font-bold text-emerald-400">
                   ₩{tripTotalSpent.toLocaleString()}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => handleEnterPastTrip(activeTrip)}
+                  className="mt-1 text-[11px] font-semibold text-sky-400 hover:underline"
+                >
+                  일정 상세 보기 →
+                </button>
               </div>
             </div>
 
