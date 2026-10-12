@@ -13,6 +13,7 @@ import {
   Search,
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
+import DateRangePicker from '../components/DateRangePicker';
 import { searchFlagsAndIcons } from '../services/countries.js';
 import {
   calculateDday,
@@ -74,6 +75,9 @@ export default function HomePage() {
   const [editingId, setEditingId] = useState(() => savedDraft?.editingId || null);
   const [form, setForm] = useState(() => savedDraft?.form || createInitialForm());
 
+  // 한 화면 출발일~종료일 통합 달력 표시 상태
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   // 대표 아이콘(전 세계 국기) 검색 상태
   const [flagQuery, setFlagQuery] = useState('');
   const filteredFlags = useMemo(() => searchFlagsAndIcons(flagQuery), [flagQuery]);
@@ -101,6 +105,7 @@ export default function HomePage() {
 
   const closeAndClearDraft = () => {
     setIsSheetOpen(false);
+    setShowDatePicker(false);
     setShowCustomCurrencyBox(false);
     setFlagQuery('');
     if (typeof localStorage !== 'undefined') {
@@ -119,6 +124,7 @@ export default function HomePage() {
       setForm(createInitialForm());
     }
     setFlagQuery('');
+    setShowDatePicker(false);
     setShowCustomCurrencyBox(false);
     setIsSheetOpen(true);
   };
@@ -136,21 +142,9 @@ export default function HomePage() {
       memo: trip.memo || '',
     });
     setFlagQuery('');
+    setShowDatePicker(false);
     setShowCustomCurrencyBox(false);
     setIsSheetOpen(true);
-  };
-
-  // 출발일 변경 시 종료일이 이전 날짜이거나 기존 출발일과 같으면 해당 연·월·일로 자동 이동
-  const handleStartDateChange = (nextStartDate) => {
-    setForm((prev) => {
-      const shouldSyncEndDate =
-        !prev.end_date || prev.end_date < nextStartDate || prev.end_date === prev.start_date;
-      return {
-        ...prev,
-        start_date: nextStartDate,
-        end_date: shouldSyncEndDate ? nextStartDate : prev.end_date,
-      };
-    });
   };
 
   // 국기 선택 시 대표 아이콘 변경 + 해당 국가의 현지 통화 자동 매칭
@@ -550,29 +544,57 @@ export default function HomePage() {
               />
             </div>
 
-            {/* 출발일 / 종료일 (iOS Safari 박스 겹침 방지 min-w-0 & 출발일 기준 종료일 자동 이동) */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="min-w-0">
-                <label className="block text-xs font-medium text-zinc-400 mb-1">출발일</label>
-                <input
-                  type="date"
-                  required
-                  value={form.start_date}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="w-full min-w-0 max-w-full block px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
-                />
+            {/* 여행 기간 통합 선택 (한 화면 달력에서 출발일 ➔ 종료일 범위 선택 후 확인 버튼 등록) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-medium text-zinc-400">
+                  여행 기간 (출발일 ~ 종료일)
+                </label>
+                <span className="text-[11px] font-semibold text-sky-400">
+                  {(() => {
+                    const days = getTripDurationDays(form.start_date, form.end_date);
+                    return days <= 1 ? '당일치기 (1일)' : `${days - 1}박 ${days}일`;
+                  })()}
+                </span>
               </div>
-              <div className="min-w-0">
-                <label className="block text-xs font-medium text-zinc-400 mb-1">종료일</label>
-                <input
-                  type="date"
-                  required
-                  min={form.start_date}
-                  value={form.end_date}
-                  onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                  className="w-full min-w-0 max-w-full block px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
+
+              <button
+                type="button"
+                onClick={() => setShowDatePicker((v) => !v)}
+                className={`w-full min-h-[48px] px-3.5 py-2.5 rounded-2xl border text-left transition flex items-center justify-between gap-2 ${
+                  showDatePicker
+                    ? 'bg-sky-500/10 border-sky-400/60 text-white'
+                    : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Calendar size={16} className="text-sky-400 shrink-0" />
+                  <div className="text-sm font-semibold truncate">
+                    <span>{form.start_date}</span>
+                    <span className="mx-2 text-zinc-500">→</span>
+                    <span>{form.end_date}</span>
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-sky-400 shrink-0 px-2.5 py-1 rounded-xl bg-sky-500/15 border border-sky-400/20">
+                  {showDatePicker ? '달력 닫기' : '달력 열기'}
+                </span>
+              </button>
+
+              {showDatePicker && (
+                <DateRangePicker
+                  startDate={form.start_date}
+                  endDate={form.end_date}
+                  onConfirm={(nextStart, nextEnd) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      start_date: nextStart,
+                      end_date: nextEnd,
+                    }));
+                    setShowDatePicker(false);
+                  }}
+                  onCancel={() => setShowDatePicker(false)}
                 />
-              </div>
+              )}
             </div>
 
             {/* 총 예산 / 현지 주 통화 */}
