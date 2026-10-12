@@ -190,7 +190,7 @@ export default function ArchivePage() {
                         e.stopPropagation();
                         handleSelectForNote(trip);
                       }}
-                      className="px-2.5 py-1.5 rounded-xl bg-purple-500/20 border border-purple-400/30 text-[11px] font-semibold text-purple-200 hover:bg-purple-500/30"
+                      className="tap-target inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-purple-500/20 border border-purple-400/30 text-[11px] font-semibold text-purple-200 hover:bg-purple-500/30"
                     >
                       사진·회고
                     </button>

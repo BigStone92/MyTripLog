@@ -16,7 +16,7 @@ export default function Layout() {
     <div className="min-h-dvh max-w-lg mx-auto relative flex flex-col bg-[#0a0a0c] text-[#f5f5f7]">
       {/* 홈/추억 메인 탭에서만 기본 브랜드 헤더 표시 (일정 상세/가계부 화면은 자체 상단 네비게이션 헤더 사용) */}
       {!isDetailView && (
-        <header className="sticky top-0 z-30 glass-panel border-x-0 border-t-0 px-4 py-3 flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-30 glass-panel border-x-0 border-t-0 px-4 pt-safe-header pb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl shrink-0" aria-hidden="true">
               ✈️
@@ -36,7 +36,7 @@ export default function Layout() {
       )}
 
       {/* 메인 스크롤 영역 */}
-      <main className={`flex-1 px-4 ${isDetailView ? 'pt-2' : 'pt-4'} pb-safe-content`}>
+      <main className={`flex-1 px-4 ${isDetailView ? 'pt-0' : 'pt-4'} pb-safe-content`}>
         <Outlet />
       </main>
 

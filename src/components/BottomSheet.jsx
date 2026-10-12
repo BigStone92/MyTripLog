@@ -60,7 +60,7 @@ export default function BottomSheet({ isOpen, onClose, title, children }) {
       <div
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="glass-panel rounded-t-3xl p-5 pb-8 border-t border-white/15 shadow-2xl max-h-[88dvh] overflow-y-auto"
+        className="glass-panel rounded-t-3xl p-5 pb-safe-sheet border-t border-white/15 shadow-2xl max-h-[88dvh] overflow-y-auto"
       >
         <div className="w-10 h-1.5 bg-white/20 rounded-full mx-auto mb-4" />
         <div className="flex items-center justify-between mb-4">

@@ -30,17 +30,17 @@
 
 /* Apple HIG Dark Glassmorphism Surface */
 .glass-panel {
-  background: rgba(18, 18, 22, 0.78);
+  background: rgba(18, 18, 18, 0.75);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .glass-card {
-  background: rgba(28, 28, 34, 0.72);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(24, 24, 28, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
 /* Apple HIG Touch Target (>= 44pt) & Micro-interaction */
@@ -73,11 +73,19 @@ dialog.bottom-sheet::backdrop {
   -webkit-backdrop-filter: blur(6px);
 }
 
-/* Safe Area Padding Helpers */
+/* Apple HIG Safe Area Helpers (iPhone Dynamic Island & Home Indicator 보호) */
+.pt-safe-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.65rem);
+}
+
 .pb-safe-content {
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 6.5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 5rem);
+}
+
+.pb-safe-sheet {
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 1.25rem);
 }
 
 .bottom-island-safe {
-  bottom: calc(env(safe-area-inset-bottom, 12px) + 0.5rem);
+  bottom: max(8px, calc(env(safe-area-inset-bottom, 12px) - 10px));
 }

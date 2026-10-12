@@ -461,7 +461,7 @@ export default function SchedulePage() {
   return (
     <div className="space-y-4">
       {/* 1. 상단 고정 헤더 + 4대 등록 캡슐 버튼 (첨부 이미지 레이아웃 100% 반영) */}
-      <div className="sticky top-0 z-30 -mx-4 px-4 pt-2 pb-3 glass-panel border-x-0 border-t-0 space-y-3">
+      <div className="sticky top-0 z-30 -mx-4 px-4 pt-safe-header pb-3 glass-panel border-x-0 border-t-0 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -500,12 +500,12 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {/* 상단 4개 퀵 액션 필 버튼: + 항공편 | + 숙소 | 체크리스트 | 가계부 */}
+        {/* 상단 4개 퀵 액션 필 버튼: + 항공편 | + 숙소 | 체크리스트 | 가계부 (Apple HIG >= 44pt) */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
             onClick={() => setActiveModal('flight')}
-            className={`px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
+            className={`tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
               flights.length > 0
                 ? 'bg-sky-500/15 border-sky-400/40 text-sky-300'
                 : 'bg-white/8 border-white/10 text-zinc-200 hover:bg-white/15'
@@ -523,7 +523,7 @@ export default function SchedulePage() {
           <button
             type="button"
             onClick={() => setActiveModal('stay')}
-            className={`px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
+            className={`tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
               accommodations.length > 0
                 ? 'bg-indigo-500/15 border-indigo-400/40 text-indigo-300'
                 : 'bg-white/8 border-white/10 text-zinc-200 hover:bg-white/15'
@@ -541,7 +541,7 @@ export default function SchedulePage() {
           <button
             type="button"
             onClick={() => setActiveModal('checklist')}
-            className={`px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
+            className={`tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border transition flex items-center gap-1.5 ${
               checklist.length > 0
                 ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                 : 'bg-white/8 border-white/10 text-zinc-200 hover:bg-white/15'
@@ -558,7 +558,7 @@ export default function SchedulePage() {
           <button
             type="button"
             onClick={() => navigate('/budget')}
-            className="px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border bg-white/8 border-white/10 text-zinc-200 hover:bg-white/15 transition flex items-center gap-1.5"
+            className="tap-target px-3.5 py-2 rounded-full text-xs font-bold shrink-0 border bg-white/8 border-white/10 text-zinc-200 hover:bg-white/15 transition flex items-center gap-1.5"
           >
             <span>가계부</span>
             {totalSpentKrw > 0 && (
@@ -579,7 +579,7 @@ export default function SchedulePage() {
                 key={day}
                 type="button"
                 onClick={() => setSelectedDay(day)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 border transition ${
+                className={`tap-target px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 border transition ${
                   day === selectedDay
                     ? 'bg-sky-500 text-zinc-950 border-sky-400'
                     : 'bg-white/5 text-zinc-300 border-white/10'
@@ -612,7 +612,8 @@ export default function SchedulePage() {
             <button
               type="button"
               onClick={() => setShowBookingsCard((v) => !v)}
-              className="p-1 text-zinc-400 hover:text-white"
+              aria-label="예약 내역 접기/펼치기"
+              className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-400 hover:text-white"
             >
               {showBookingsCard ? (
                 <ChevronUp className="w-4 h-4" />

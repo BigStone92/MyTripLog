@@ -149,7 +149,7 @@ export default function BudgetPage() {
   return (
     <div className="space-y-4">
       {/* 상단 가계부 네비게이션 헤더 (일정 상세로 돌아가기) */}
-      <header className="sticky top-0 z-30 -mx-4 px-4 py-2.5 glass-panel border-x-0 border-t-0 flex items-center justify-between gap-2">
+      <header className="sticky top-0 z-30 -mx-4 px-4 pt-safe-header pb-2.5 glass-panel border-x-0 border-t-0 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
