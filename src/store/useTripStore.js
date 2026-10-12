@@ -35,7 +35,23 @@ export const EXCHANGE_RATES = Object.fromEntries(
 export function toKrwAmount(amount, currency = 'KRW', customMap = {}) {
   const all = getMergedCurrencies(customMap);
   const rate = all[currency]?.rate ?? EXCHANGE_RATES[currency] ?? 1;
-  return Math.round((Number(amount) || 0) * Number(rate));
+  const cleanAmount = typeof amount === 'string' ? Number(amount.replace(/,/g, '')) : Number(amount);
+  return Math.round((cleanAmount || 0) * Number(rate));
+}
+
+export function stripCommaNumber(raw = '') {
+  const cleaned = String(raw).replace(/[^0-9.]/g, '');
+  const parts = cleaned.split('.');
+  return parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
+}
+
+export function formatCommaNumber(val) {
+  if (val === '' || val === null || val === undefined) return '';
+  const cleaned = stripCommaNumber(val);
+  if (!cleaned) return '';
+  const [intPart, decPart] = cleaned.split('.');
+  const formattedInt = intPart ? Number(intPart).toLocaleString('en-US') : '0';
+  return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
 export function calculateDday(startDateStr, endDateStr) {
@@ -237,13 +253,14 @@ export const useTripStore = create((set, get) => ({
   saveTrip: async (tripData) => {
     const now = new Date().toISOString();
     const existing = get().trips.find((t) => t.id === tripData.id);
+    const cleanBudget = Number(stripCommaNumber(tripData.total_budget)) || 1000000;
     const trip = {
       id: tripData.id || `trip-${crypto.randomUUID().slice(0, 8)}`,
       title: tripData.title.trim(),
       destination: tripData.destination.trim(),
       start_date: tripData.start_date,
       end_date: tripData.end_date || tripData.start_date,
-      total_budget: Number(tripData.total_budget) || 1000000,
+      total_budget: cleanBudget,
       currency: tripData.currency || 'KRW',
       cover_emoji: tripData.cover_emoji || '✈️',
       status: tripData.status || existing?.status || 'planned',
@@ -334,7 +351,7 @@ export const useTripStore = create((set, get) => ({
   saveExpense: async (expenseData) => {
     const now = new Date().toISOString();
     const currency = expenseData.currency || 'KRW';
-    const amount = Number(expenseData.amount) || 0;
+    const amount = Number(stripCommaNumber(expenseData.amount)) || 0;
     const item = {
       id: expenseData.id || `exp-${crypto.randomUUID().slice(0, 8)}`,
       trip_id: expenseData.trip_id || get().activeTripId,

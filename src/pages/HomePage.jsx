@@ -16,8 +16,10 @@ import BottomSheet from '../components/BottomSheet';
 import { searchFlagsAndIcons } from '../services/countries.js';
 import {
   calculateDday,
+  formatCommaNumber,
   getMergedCurrencies,
   getTripDurationDays,
+  stripCommaNumber,
   useTripStore,
 } from '../store/useTripStore.js';
 
@@ -431,7 +433,7 @@ export default function HomePage() {
                     </div>
                     <h3 className="text-sm font-semibold text-white truncate">{trip.title}</h3>
                     <p className="text-xs text-zinc-400 truncate">
-                      {trip.destination} · {trip.start_date} ~ {trip.end_date}
+                      {trip.destination} · ₩{Number(trip.total_budget || 0).toLocaleString()} · {trip.start_date} ~ {trip.end_date}
                     </p>
                   </div>
                 </div>
@@ -566,12 +568,14 @@ export default function HomePage() {
                   총 예산 (원화 ₩ 기준)
                 </label>
                 <input
-                  type="number"
-                  min="0"
-                  step="10000"
+                  type="text"
+                  inputMode="numeric"
                   required
-                  value={form.total_budget}
-                  onChange={(e) => setForm({ ...form, total_budget: Number(e.target.value) })}
+                  placeholder="1,000,000"
+                  value={formatCommaNumber(form.total_budget)}
+                  onChange={(e) =>
+                    setForm({ ...form, total_budget: stripCommaNumber(e.target.value) })
+                  }
                   className="w-full min-w-0 px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-sky-400"
                 />
               </div>

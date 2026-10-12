@@ -12,8 +12,10 @@ import {
 } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
 import {
+  formatCommaNumber,
   getMergedCurrencies,
   getTripDurationDays,
+  stripCommaNumber,
   toKrwAmount,
   useTripStore,
 } from '../store/useTripStore.js';
@@ -402,13 +404,12 @@ export default function BudgetPage() {
             <div className="col-span-2">
               <label className="block text-xs font-medium text-zinc-400 mb-1">결제 금액</label>
               <input
-                type="number"
-                step="any"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 required
                 placeholder="0"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                value={formatCommaNumber(form.amount)}
+                onChange={(e) => setForm({ ...form, amount: stripCommaNumber(e.target.value) })}
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-emerald-400"
               />
             </div>
