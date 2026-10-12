@@ -86,12 +86,23 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
 
-        # 초기 샘플 데이터 시딩 (비어 있을 때 1회)
+        # 최초 DB 생성 시에만 1회 시딩 (사용자가 샘플을 모두 삭제해도 재기동 시 복구되지 않도록 보호)
+        seed_done = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'initial_seed_done'"
+        ).fetchone()
         count = conn.execute("SELECT COUNT(*) FROM trips").fetchone()[0]
-        if count == 0:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('initial_seed_done', '1')"
+        )
+        if not seed_done and count == 0:
             ts = now_iso()
             conn.execute(
                 """

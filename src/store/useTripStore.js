@@ -54,6 +54,12 @@ export function formatCommaNumber(val) {
   return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
+// http://macmini:5174 등 비보안 HTTP 컨텍스트에서도 100% 동작하는 고유 ID 생성기
+export function makeId(prefix = 'id') {
+  const rand = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return prefix ? `${prefix}-${rand}` : rand;
+}
+
 export function calculateDday(startDateStr, endDateStr) {
   if (!startDateStr) return { label: 'D-?', diff: 0, state: 'upcoming' };
   const today = new Date();
@@ -208,12 +214,12 @@ export const useTripStore = create((set, get) => ({
   initApp: async () => {
     const cached = await loadLocalSnapshot();
     const queue = await getSyncQueue();
-    if (cached && cached.trips?.length) {
+    if (cached && Array.isArray(cached.trips)) {
       set({
         trips: cached.trips,
         schedules: cached.schedules || [],
         expenses: cached.expenses || [],
-        activeTripId: cached.activeTripId || cached.trips[0]?.id,
+        activeTripId: cached.activeTripId || cached.trips[0]?.id || null,
         lastSyncedAt: cached.lastSyncedAt || null,
         pendingSyncCount: queue.length,
       });
@@ -234,7 +240,7 @@ export const useTripStore = create((set, get) => ({
 
   recordMutation: async (entity, action, payload) => {
     const item = {
-      id: crypto.randomUUID(),
+      id: makeId('sync'),
       entity,
       action,
       payload,
@@ -255,7 +261,7 @@ export const useTripStore = create((set, get) => ({
     const existing = get().trips.find((t) => t.id === tripData.id);
     const cleanBudget = Number(stripCommaNumber(tripData.total_budget)) || 1000000;
     const trip = {
-      id: tripData.id || `trip-${crypto.randomUUID().slice(0, 8)}`,
+      id: tripData.id || makeId('trip'),
       title: tripData.title.trim(),
       destination: tripData.destination.trim(),
       start_date: tripData.start_date,
@@ -304,7 +310,7 @@ export const useTripStore = create((set, get) => ({
     const existing = get().schedules.find((s) => s.id === scheduleData.id);
 
     const item = {
-      id: scheduleData.id || `sch-${crypto.randomUUID().slice(0, 8)}`,
+      id: scheduleData.id || makeId('sch'),
       trip_id: tripId,
       day_number: dayNumber,
       order_index:
@@ -353,7 +359,7 @@ export const useTripStore = create((set, get) => ({
     const currency = expenseData.currency || 'KRW';
     const amount = Number(stripCommaNumber(expenseData.amount)) || 0;
     const item = {
-      id: expenseData.id || `exp-${crypto.randomUUID().slice(0, 8)}`,
+      id: expenseData.id || makeId('exp'),
       trip_id: expenseData.trip_id || get().activeTripId,
       day_number: Number(expenseData.day_number || get().selectedDay || 1),
       title: expenseData.title.trim(),
@@ -384,11 +390,14 @@ export const useTripStore = create((set, get) => ({
     if (get().isSyncing) return;
     set({ isSyncing: true });
     try {
-      const queue = await getSyncQueue();
+      let queue = await getSyncQueue();
       let snapshot;
       if (queue.length > 0) {
-        snapshot = await macMiniApi.syncBatch(queue);
-        await removeSyncedActions(snapshot.applied_action_ids || queue.map((q) => q.id));
+        while (queue.length > 0) {
+          snapshot = await macMiniApi.syncBatch(queue);
+          await removeSyncedActions(snapshot.applied_action_ids || queue.map((q) => q.id));
+          queue = await getSyncQueue();
+        }
       } else {
         snapshot = await macMiniApi.fetchBootstrap();
       }

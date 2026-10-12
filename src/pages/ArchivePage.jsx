@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Camera, BookOpen, Plus, Trash2, Check, Calendar, MapPin } from 'lucide-react';
 import BottomSheet from '../components/BottomSheet';
-import { useTripStore } from '../store/useTripStore';
+import { makeId, useTripStore } from '../store/useTripStore';
 
 // 로컬 사진 파일을 오프라인/SQLite 저장에 적합하도록 경량 WebP/JPEG DataURL로 리사이즈
 function compressImageFile(file, maxWidth = 900) {
@@ -66,7 +66,7 @@ export default function ArchivePage() {
     e.preventDefault();
     if (!activeTrip || !photoForm.url) return;
     const newPhoto = {
-      id: `photo-${crypto.randomUUID().slice(0, 8)}`,
+      id: makeId('photo'),
       caption: photoForm.caption.trim() || `${activeTrip.destination}의 순간`,
       date: new Date().toISOString().slice(0, 10),
       url: photoForm.url,

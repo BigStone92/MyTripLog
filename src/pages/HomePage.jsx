@@ -214,8 +214,24 @@ export default function HomePage() {
 
   return (
     <div className="space-y-5">
-      {/* 1. 메인 D-Day 히어로 대시보드 카드 */}
-      {activeTrip && (
+      {/* 1. 메인 D-Day 히어로 대시보드 카드 (또는 전체 여행 삭제 시 빈 상태 안내) */}
+      {!activeTrip ? (
+        <section className="glass-card rounded-3xl p-8 text-center space-y-3 border border-white/15">
+          <p className="text-3xl">✈️</p>
+          <h1 className="text-base font-bold text-white">등록된 여행 플랜이 없습니다</h1>
+          <p className="text-xs text-zinc-400">
+            새로운 목적지와 예산을 설정해 나만의 여행 플래너를 시작해 보세요.
+          </p>
+          <button
+            type="button"
+            onClick={openNewTripModal}
+            className="tap-target inline-flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs shadow-lg shadow-sky-500/20"
+          >
+            <Plus className="w-4 h-4" />
+            <span>첫 여행 플랜 등록하기</span>
+          </button>
+        </section>
+      ) : (
         <section className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-sky-500/20 via-indigo-500/15 to-zinc-900/90 border border-white/15 shadow-xl">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1.5">
@@ -438,19 +454,17 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {trips.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteTrip(trip.id);
-                    }}
-                    aria-label={`${trip.title} 삭제`}
-                    className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteTrip(trip.id);
+                  }}
+                  aria-label={`${trip.title} 삭제`}
+                  className="tap-target inline-flex items-center justify-center rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             );
           })}
