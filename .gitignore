@@ -7,5 +7,9 @@ dist-ssr
 *.pid
 backend/*.db
 backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm
+*.db-wal
+*.db-shm
 backend/__pycache__
 .DS_Store
