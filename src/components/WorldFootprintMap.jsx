@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Compass,
   ExternalLink,
+  Eye,
+  EyeOff,
   Globe,
   MapPin,
   Maximize2,
@@ -56,7 +58,18 @@ export default function WorldFootprintMap({
   const mapElRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const layerGroupRef = useRef(null);
+  const lastCameraKeyRef = useRef('');
   const [leafletReady, setLeafletReady] = useState(false);
+  const [showCityNames, setShowCityNames] = useState(() => {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem('mytriplog_show_world_names') !== 'false';
+  });
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('mytriplog_show_world_names', String(showCityNames));
+    }
+  }, [showCityNames]);
 
   // 추천 A: 나만의 여행 발자취 통계 계산
   const stats = useMemo(
@@ -217,40 +230,60 @@ export default function WorldFootprintMap({
       const badgeBorder = isFocused
         ? 'rgba(233, 213, 255, 0.95)'
         : 'rgba(56, 189, 248, 0.55)';
-      const labelHtml = `
-        <div style="
-          display:inline-flex;
-          align-items:center;
-          gap:5px;
-          padding:4px 10px;
-          border-radius:999px;
-          background:${badgeBg};
-          border:1.5px solid ${badgeBorder};
-          color:#ffffff;
-          font-size:11px;
-          font-weight:800;
-          white-space:nowrap;
-          box-shadow:0 6px 16px rgba(0,0,0,0.55);
-          transform:${isFocused ? 'scale(1.08)' : 'scale(1)'};
-          transition:transform 0.2s ease;
-        ">
-          <span>${pin.flag}</span>
-          <span style="color:${isFocused ? '#faf5ff' : '#bae6fd'};font-weight:700;">${pin.country}</span>
-          <span>·</span>
-          <span>${pin.city}</span>
-          ${
-            pin.totalInTrip > 1
-              ? `<span style="background:rgba(0,0,0,0.35);padding:1px 5px;border-radius:999px;font-size:9px;">${pin.orderInTrip}</span>`
-              : ''
-          }
-        </div>
-      `;
+
+      const labelHtml = showCityNames
+        ? `
+          <div style="
+            display:inline-flex;
+            align-items:center;
+            gap:5px;
+            padding:4px 10px;
+            border-radius:999px;
+            background:${badgeBg};
+            border:1.5px solid ${badgeBorder};
+            color:#ffffff;
+            font-size:11px;
+            font-weight:800;
+            white-space:nowrap;
+            box-shadow:0 6px 16px rgba(0,0,0,0.55);
+            transform:${isFocused ? 'scale(1.08)' : 'scale(1)'};
+            transition:transform 0.2s ease;
+          ">
+            <span>${pin.flag}</span>
+            <span style="color:${isFocused ? '#faf5ff' : '#bae6fd'};font-weight:700;">${pin.country}</span>
+            <span>·</span>
+            <span>${pin.city}</span>
+            ${
+              pin.totalInTrip > 1
+                ? `<span style="background:rgba(0,0,0,0.35);padding:1px 5px;border-radius:999px;font-size:9px;">${pin.orderInTrip}</span>`
+                : ''
+            }
+          </div>
+        `
+        : `
+          <div style="
+            width:26px;
+            height:26px;
+            border-radius:999px;
+            background:${badgeBg};
+            border:1.5px solid ${badgeBorder};
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:13px;
+            box-shadow:0 4px 12px rgba(0,0,0,0.5);
+            transform:${isFocused ? 'scale(1.2)' : 'scale(1)'};
+            transition:transform 0.2s ease;
+          ">
+            <span>${pin.flag}</span>
+          </div>
+        `;
 
       const icon = L.divIcon({
         className: 'custom-trip-city-pin',
         html: labelHtml,
-        iconSize: [130, 28],
-        iconAnchor: [65, 14],
+        iconSize: showCityNames ? [130, 28] : [26, 26],
+        iconAnchor: showCityNames ? [65, 14] : [13, 13],
       });
 
       const marker = L.marker([pin.lat, pin.lng], { icon }).addTo(group);
@@ -290,40 +323,45 @@ export default function WorldFootprintMap({
       });
     }
 
-    // 5) 카메라 시점 제어: 특정 여행 클릭 시 해당 도시(또는 다중 도시 + 세부 스팟)로 자세히 확대!
-    if (focusedTrip) {
-      const targetPoints = [
-        ...focusedCities.map((c) => [Number(c.lat), Number(c.lng)]),
-        ...focusedScheduleSpots.map((s) => [Number(s.lat), Number(s.lng)]),
-      ];
+    // 5) 카메라 시점 제어: 특정 여행 클릭 전환 시 해당 도시/스팟으로 부드럽게 확대 (이름 토글 시에는 기존 시점 유지)
+    const currentCameraKey = `${focusedTrip?.id || 'world'}_${allTripCityPins.length}`;
+    if (lastCameraKeyRef.current !== currentCameraKey) {
+      lastCameraKeyRef.current = currentCameraKey;
 
-      if (targetPoints.length === 1) {
-        map.flyTo(targetPoints[0], 10, { animate: true, duration: 1.15 });
-      } else if (targetPoints.length > 1) {
-        const bounds = L.latLngBounds(targetPoints);
-        map.flyToBounds(bounds, {
-          padding: [48, 48],
-          maxZoom: 11,
-          animate: true,
-          duration: 1.15,
-        });
-      }
-    } else {
-      // 세계지도 전체 보기 상태: 방문한 모든 여행지 + 서울이 한눈에 보이도록 맞춤(없으면 세계 전체)
-      if (allTripCityPins.length > 0) {
-        const allPts = [
-          [SEOUL_ORIGIN.lat, SEOUL_ORIGIN.lng],
-          ...allTripCityPins.map((p) => [p.lat, p.lng]),
+      if (focusedTrip) {
+        const targetPoints = [
+          ...focusedCities.map((c) => [Number(c.lat), Number(c.lng)]),
+          ...focusedScheduleSpots.map((s) => [Number(s.lat), Number(s.lng)]),
         ];
-        const bounds = L.latLngBounds(allPts);
-        map.flyToBounds(bounds, {
-          padding: [42, 42],
-          maxZoom: 5,
-          animate: true,
-          duration: 0.9,
-        });
+
+        if (targetPoints.length === 1) {
+          map.flyTo(targetPoints[0], 10, { animate: true, duration: 1.15 });
+        } else if (targetPoints.length > 1) {
+          const bounds = L.latLngBounds(targetPoints);
+          map.flyToBounds(bounds, {
+            padding: [48, 48],
+            maxZoom: 11,
+            animate: true,
+            duration: 1.15,
+          });
+        }
       } else {
-        map.setView([25, 125], 2);
+        // 세계지도 전체 보기 상태: 방문한 모든 여행지 + 서울이 한눈에 보이도록 맞춤(없으면 세계 전체)
+        if (allTripCityPins.length > 0) {
+          const allPts = [
+            [SEOUL_ORIGIN.lat, SEOUL_ORIGIN.lng],
+            ...allTripCityPins.map((p) => [p.lat, p.lng]),
+          ];
+          const bounds = L.latLngBounds(allPts);
+          map.flyToBounds(bounds, {
+            padding: [42, 42],
+            maxZoom: 5,
+            animate: true,
+            duration: 0.9,
+          });
+        } else {
+          map.setView([25, 125], 2);
+        }
       }
     }
   }, [
@@ -335,6 +373,7 @@ export default function WorldFootprintMap({
     focusedCities,
     focusedScheduleSpots,
     onSelectTrip,
+    showCityNames,
   ]);
 
   // 오프라인 SVG 세계지도용 viewBox 계산 (선택된 여행이 있으면 해당 도시 주변으로 확대)
@@ -406,7 +445,31 @@ export default function WorldFootprintMap({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* 여행한 곳 이름 표시/숨김 토글 버튼 */}
+            <button
+              type="button"
+              onClick={() => setShowCityNames((prev) => !prev)}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 transition active:scale-95 border ${
+                showCityNames
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-400/40 shadow-sm'
+                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white'
+              }`}
+              title="지도 내 여행한 곳 이름 표시/숨김 토글"
+            >
+              {showCityNames ? (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-sky-400" />
+                  <span>이름 켜짐</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>이름 숨김</span>
+                </>
+              )}
+            </button>
+
             {focusedTrip ? (
               <>
                 <button

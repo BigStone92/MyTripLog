@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar,
   Check,
+  Eye,
+  EyeOff,
   Globe,
   Map as MapIcon,
   MapPin,
@@ -43,6 +45,18 @@ export default function ColorMapPage() {
   const [mapScope, setMapScope] = useState('domestic');
   // 현재 지도에서 클릭하여 확대·팝업 표시 중인 지역 키 (region_key)
   const [selectedRegionKey, setSelectedRegionKey] = useState(null);
+
+  // 지도 내 여행한 곳(색칠 지역) 이름 보이기 / 숨기기 토글 상태
+  const [showVisitedNames, setShowVisitedNames] = useState(() => {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem('mytriplog_show_colored_names') !== 'false';
+  });
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('mytriplog_show_colored_names', String(showVisitedNames));
+    }
+  }, [showVisitedNames]);
 
   // 날짜 & 지역명 색칠 입력 폼 상태
   const [visitedDate, setVisitedDate] = useState(() => getLocalTodayStr());
@@ -281,49 +295,51 @@ export default function ColorMapPage() {
         });
       }
 
-      // 색칠된 지역 중심에 한글 지역명 + 방문 횟수 배지 표시
-      const badgeHtml = `
-        <div style="
-          display:inline-flex;
-          align-items:center;
-          gap:4px;
-          padding:3px 9px;
-          border-radius:999px;
-          background:${isSelected ? group.color : 'rgba(18, 18, 22, 0.88)'};
-          border:1.5px solid ${isSelected ? '#ffffff' : group.color};
-          color:${isSelected ? '#090d16' : '#ffffff'};
-          font-size:11px;
-          font-weight:800;
-          white-space:nowrap;
-          box-shadow:0 4px 14px rgba(0,0,0,0.65);
-          cursor:pointer;
-        ">
-          <span>${group.flag}</span>
-          <span>${group.region_name}</span>
-          ${
-            group.visitCount > 1
-              ? `<span style="background:rgba(0,0,0,0.3);color:${
-                  isSelected ? '#090d16' : '#fde047'
-                };padding:0 5px;border-radius:999px;font-size:9px;">${group.visitCount}회</span>`
-              : ''
-          }
-        </div>
-      `;
+      // 색칠된 지역 중심에 한글 지역명 + 방문 횟수 배지 표시 (토글 연동)
+      if (showVisitedNames) {
+        const badgeHtml = `
+          <div style="
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+            padding:3px 9px;
+            border-radius:999px;
+            background:${isSelected ? group.color : 'rgba(18, 18, 22, 0.88)'};
+            border:1.5px solid ${isSelected ? '#ffffff' : group.color};
+            color:${isSelected ? '#090d16' : '#ffffff'};
+            font-size:11px;
+            font-weight:800;
+            white-space:nowrap;
+            box-shadow:0 4px 14px rgba(0,0,0,0.65);
+            cursor:pointer;
+          ">
+            <span>${group.flag}</span>
+            <span>${group.region_name}</span>
+            ${
+              group.visitCount > 1
+                ? `<span style="background:rgba(0,0,0,0.3);color:${
+                    isSelected ? '#090d16' : '#fde047'
+                  };padding:0 5px;border-radius:999px;font-size:9px;">${group.visitCount}회</span>`
+                : ''
+            }
+          </div>
+        `;
 
-      const badgeIcon = L.divIcon({
-        className: 'colored-region-korean-badge',
-        html: badgeHtml,
-        iconSize: [110, 26],
-        iconAnchor: [55, 13],
-      });
+        const badgeIcon = L.divIcon({
+          className: 'colored-region-korean-badge',
+          html: badgeHtml,
+          iconSize: [110, 26],
+          iconAnchor: [55, 13],
+        });
 
-      const marker = L.marker([group.lat, group.lng], { icon: badgeIcon }).addTo(polyGroup);
-      marker.on('click', () => {
-        handleFocusRegionGroup(group);
-      });
+        const marker = L.marker([group.lat, group.lng], { icon: badgeIcon }).addTo(polyGroup);
+        marker.on('click', () => {
+          handleFocusRegionGroup(group);
+        });
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leafletReady, groupedRegions, mapScope, selectedRegionKey]);
+  }, [leafletReady, groupedRegions, mapScope, selectedRegionKey, showVisitedNames]);
 
   // 특정 색칠 지역 클릭 시 해당 지역의 색칠 영역으로 지도 확대 (추천 D & E)
   const handleFocusRegionGroup = (group) => {
@@ -536,14 +552,39 @@ export default function ColorMapPage() {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleSwitchScope(mapScope)}
-            className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-[11px] font-semibold text-zinc-200 inline-flex items-center gap-1 transition active:scale-95"
-          >
-            <RotateCcw className="w-3 h-3 text-sky-400" />
-            <span>전체 배율 초기화</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* 여행한 곳(색칠 지역) 이름 보이기 / 숨기기 토글 버튼 */}
+            <button
+              type="button"
+              onClick={() => setShowVisitedNames((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 transition active:scale-95 border ${
+                showVisitedNames
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-400/40 shadow-sm'
+                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white'
+              }`}
+            >
+              {showVisitedNames ? (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-sky-400" />
+                  <span>이름 켜짐</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>이름 숨김</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSwitchScope(mapScope)}
+              className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-[11px] font-semibold text-zinc-200 inline-flex items-center gap-1 transition active:scale-95"
+            >
+              <RotateCcw className="w-3 h-3 text-sky-400" />
+              <span>전체 배율 초기화</span>
+            </button>
+          </div>
         </div>
 
         {/* 지도 뷰포트 */}
