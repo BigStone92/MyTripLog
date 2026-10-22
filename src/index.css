@@ -99,3 +99,9 @@ dialog.bottom-sheet::backdrop {
   background-color: #090d16 !important;
   font-family: inherit;
 }
+
+/* Leaflet Custom DivIcon Clean Reset */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}

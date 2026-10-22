@@ -1,10 +1,11 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { Home, BookOpen } from 'lucide-react';
+import { Home, BookOpen, Map } from 'lucide-react';
 import SyncBadge from './SyncBadge';
 
 const NAV_ITEMS = [
   { to: '/', label: '홈', subtitle: '예정·진행 여행', icon: Home },
   { to: '/archive', label: '추억', subtitle: '지난 여행 일정', icon: BookOpen },
+  { to: '/map', label: '지도', subtitle: '내가 간 곳 색칠하기', icon: Map },
 ];
 
 export default function Layout() {
@@ -14,7 +15,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-dvh max-w-lg mx-auto relative flex flex-col bg-[#0a0a0c] text-[#f5f5f7]">
-      {/* 홈/추억 메인 탭에서만 기본 브랜드 헤더 표시 (일정 상세/가계부 화면은 자체 상단 네비게이션 헤더 사용) */}
+      {/* 홈/추억/지도 메인 탭에서만 기본 브랜드 헤더 표시 (일정 상세/가계부 화면은 자체 상단 네비게이션 헤더 사용) */}
       {!isDetailView && (
         <header className="sticky top-0 z-30 glass-panel border-x-0 border-t-0 px-4 pt-safe-header pb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -24,7 +25,9 @@ export default function Layout() {
             <div>
               <h1 className="text-sm font-extrabold tracking-tight text-white">MyTripLog</h1>
               <p className="text-[11px] text-zinc-400">
-                {location.pathname.startsWith('/archive')
+                {location.pathname.startsWith('/map')
+                  ? '내가 간 곳 여행 색칠 지도'
+                  : location.pathname.startsWith('/archive')
                   ? '지난 여행의 추억과 기록'
                   : '다가오는 여행 대시보드'}
               </p>

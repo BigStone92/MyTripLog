@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import SchedulePage from './pages/SchedulePage';
 import BudgetPage from './pages/BudgetPage';
 import ArchivePage from './pages/ArchivePage';
+import ColorMapPage from './pages/ColorMapPage';
 import { useTripStore } from './store/useTripStore';
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/budget" element={<BudgetPage />} />
           <Route path="/archive" element={<ArchivePage />} />
+          <Route path="/map" element={<ColorMapPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -92,6 +92,22 @@ def init_db() -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS colored_regions (
+                id TEXT PRIMARY KEY,
+                region_key TEXT NOT NULL,
+                region_name TEXT NOT NULL,
+                country_name TEXT NOT NULL DEFAULT '대한민국',
+                flag TEXT NOT NULL DEFAULT '🇰🇷',
+                scope TEXT NOT NULL DEFAULT 'domestic',
+                visited_date TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#38bdf8',
+                memo TEXT NOT NULL DEFAULT '',
+                lat REAL NOT NULL DEFAULT 37.5665,
+                lng REAL NOT NULL DEFAULT 126.9780,
+                geojson_str TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
             """
         )
 
@@ -360,6 +376,48 @@ def apply_upsert_expense(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
     )
 
 
+def apply_upsert_colored_region(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
+    ts = p.get("updated_at") or now_iso()
+    geojson_val = p.get("geojson", p.get("geojson_str", ""))
+    if isinstance(geojson_val, (dict, list)):
+        geojson_str = json.dumps(geojson_val, ensure_ascii=False)
+    else:
+        geojson_str = str(geojson_val or "")
+
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO colored_regions
+        (id, region_key, region_name, country_name, flag, scope, visited_date, color, memo, lat, lng, geojson_str, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            p["id"],
+            p.get("region_key") or f"{p.get('country_name', '대한민국')}-{p['region_name']}",
+            p["region_name"],
+            p.get("country_name", "대한민국"),
+            p.get("flag", "🇰🇷"),
+            p.get("scope", "domestic"),
+            p.get("visited_date") or ts[:10],
+            p.get("color", "#38bdf8"),
+            p.get("memo", ""),
+            float(p.get("lat", 37.5665)),
+            float(p.get("lng", 126.9780)),
+            geojson_str,
+            ts,
+        ),
+    )
+
+
+def serialize_colored_region(row: sqlite3.Row) -> Dict[str, Any]:
+    d = dict(row)
+    raw = d.pop("geojson_str", "") or ""
+    try:
+        d["geojson"] = json.loads(raw) if raw else None
+    except Exception:
+        d["geojson"] = None
+    return d
+
+
 init_db()
 
 
@@ -388,10 +446,17 @@ def get_bootstrap_data() -> Dict[str, Any]:
                 "SELECT * FROM expenses ORDER BY spent_at DESC, updated_at DESC"
             ).fetchall()
         ]
+        colored_regions = [
+            serialize_colored_region(r)
+            for r in conn.execute(
+                "SELECT * FROM colored_regions ORDER BY visited_date DESC, updated_at DESC"
+            ).fetchall()
+        ]
     return {
         "trips": trips,
         "schedules": schedules,
         "expenses": expenses,
+        "colored_regions": colored_regions,
         "synced_at": now_iso(),
     }
 
@@ -477,6 +542,11 @@ def sync_offline_queue(batch: SyncBatchRequest) -> Dict[str, Any]:
                     apply_upsert_expense(conn, p)
                 elif action == "delete":
                     conn.execute("DELETE FROM expenses WHERE id = ?", (p["id"],))
+            elif entity == "colored_region":
+                if action == "upsert":
+                    apply_upsert_colored_region(conn, p)
+                elif action == "delete":
+                    conn.execute("DELETE FROM colored_regions WHERE id = ?", (p["id"],))
             else:
                 raise HTTPException(status_code=400, detail=f"Unknown entity: {entity}")
 

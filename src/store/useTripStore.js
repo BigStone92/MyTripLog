@@ -217,6 +217,7 @@ export const useTripStore = create((set, get) => ({
   trips: [],
   schedules: [],
   expenses: [],
+  coloredRegions: [],
   customCurrencies: loadSavedCustomCurrencies(),
   activeTripId: 'trip-tokyo-2026',
   selectedDay: 1,
@@ -251,8 +252,15 @@ export const useTripStore = create((set, get) => ({
   },
 
   persistLocal: async () => {
-    const { trips, schedules, expenses, activeTripId, lastSyncedAt } = get();
-    await saveLocalSnapshot({ trips, schedules, expenses, activeTripId, lastSyncedAt });
+    const { trips, schedules, expenses, coloredRegions, activeTripId, lastSyncedAt } = get();
+    await saveLocalSnapshot({
+      trips,
+      schedules,
+      expenses,
+      coloredRegions,
+      activeTripId,
+      lastSyncedAt,
+    });
   },
 
   initApp: async () => {
@@ -263,6 +271,7 @@ export const useTripStore = create((set, get) => ({
         trips: cached.trips,
         schedules: cached.schedules || [],
         expenses: cached.expenses || [],
+        coloredRegions: cached.coloredRegions || [],
         activeTripId: cached.activeTripId || cached.trips[0]?.id || null,
         lastSyncedAt: cached.lastSyncedAt || null,
         pendingSyncCount: queue.length,
@@ -270,11 +279,13 @@ export const useTripStore = create((set, get) => ({
     } else {
       set({
         ...FALLBACK_SNAPSHOT,
+        coloredRegions: [],
         activeTripId: FALLBACK_SNAPSHOT.trips[0].id,
         pendingSyncCount: queue.length,
       });
       await saveLocalSnapshot({
         ...FALLBACK_SNAPSHOT,
+        coloredRegions: [],
         activeTripId: FALLBACK_SNAPSHOT.trips[0].id,
       });
     }
@@ -445,6 +456,43 @@ export const useTripStore = create((set, get) => ({
     await get().recordMutation('expense', 'delete', { id: expenseId });
   },
 
+  saveColoredRegion: async (regionData) => {
+    const now = new Date().toISOString();
+    const countryName = (regionData.country_name || '대한민국').trim();
+    const regionName = (regionData.region_name || '').trim();
+    const regionKey = regionData.region_key || `${countryName}-${regionName}`;
+    const existing = get().coloredRegions.find((r) => r.id === regionData.id);
+
+    const item = {
+      id: regionData.id || makeId('creg'),
+      region_key: regionKey,
+      region_name: regionName,
+      country_name: countryName,
+      flag: regionData.flag || '🇰🇷',
+      scope: regionData.scope || (countryName === '대한민국' ? 'domestic' : 'global'),
+      visited_date: regionData.visited_date || getLocalTodayStr(),
+      color: regionData.color || '#38bdf8',
+      memo: regionData.memo !== undefined ? regionData.memo : existing?.memo || '',
+      lat: Number(regionData.lat) || 37.5665,
+      lng: Number(regionData.lng) || 126.978,
+      geojson: regionData.geojson !== undefined ? regionData.geojson : existing?.geojson || null,
+      updated_at: now,
+    };
+
+    const nextList = existing
+      ? get().coloredRegions.map((r) => (r.id === item.id ? item : r))
+      : [item, ...get().coloredRegions];
+
+    set({ coloredRegions: nextList });
+    await get().recordMutation('colored_region', 'upsert', item);
+    return item;
+  },
+
+  deleteColoredRegion: async (id) => {
+    set({ coloredRegions: get().coloredRegions.filter((r) => r.id !== id) });
+    await get().recordMutation('colored_region', 'delete', { id });
+  },
+
   flushSyncQueue: async () => {
     if (get().isSyncing) return;
     set({ isSyncing: true });
@@ -470,6 +518,7 @@ export const useTripStore = create((set, get) => ({
         trips: snapshot.trips,
         schedules: snapshot.schedules,
         expenses: snapshot.expenses,
+        coloredRegions: snapshot.colored_regions || get().coloredRegions || [],
         activeTripId: validActive,
         pendingSyncCount: remaining.length,
         lastSyncedAt: snapshot.synced_at,
