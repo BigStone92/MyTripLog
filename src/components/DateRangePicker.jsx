@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check } from 'luci
 import { getTripDurationDays } from '../store/useTripStore.js';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const YEARS = Array.from({ length: 10 }, (_, i) => 2024 + i);
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: CURRENT_YEAR + 5 - 1990 + 1 }, (_, i) => 1990 + i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i);
 
 function formatYmd(year, monthIndex, day) {

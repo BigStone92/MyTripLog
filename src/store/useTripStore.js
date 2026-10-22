@@ -323,6 +323,14 @@ export const useTripStore = create((set, get) => ({
           : existing?.accommodations || [],
       checklist:
         tripData.checklist !== undefined ? tripData.checklist : existing?.checklist || [],
+      cities:
+        tripData.cities !== undefined ? tripData.cities : existing?.cities || [],
+      country:
+        tripData.country !== undefined ? tripData.country : existing?.country || '',
+      lat:
+        tripData.lat !== undefined ? tripData.lat : existing?.lat ?? null,
+      lng:
+        tripData.lng !== undefined ? tripData.lng : existing?.lng ?? null,
       updated_at: now,
     };
 

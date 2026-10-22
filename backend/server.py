@@ -208,6 +208,10 @@ class TripPayload(BaseModel):
     flights: List[Dict[str, Any]] = Field(default_factory=list)
     accommodations: List[Dict[str, Any]] = Field(default_factory=list)
     checklist: List[Dict[str, Any]] = Field(default_factory=list)
+    cities: List[Dict[str, Any]] = Field(default_factory=list)
+    country: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     updated_at: Optional[str] = None
 
 
@@ -262,6 +266,10 @@ def serialize_trip(row: sqlite3.Row) -> Dict[str, Any]:
     d["flights"] = extra.get("flights", [])
     d["accommodations"] = extra.get("accommodations", [])
     d["checklist"] = extra.get("checklist", [])
+    d["cities"] = extra.get("cities", [])
+    d["country"] = extra.get("country", "")
+    d["lat"] = extra.get("lat", None)
+    d["lng"] = extra.get("lng", None)
     return d
 
 
@@ -273,6 +281,10 @@ def apply_upsert_trip(conn: sqlite3.Connection, p: Dict[str, Any]) -> None:
             "flights": p.get("flights", []),
             "accommodations": p.get("accommodations", []),
             "checklist": p.get("checklist", []),
+            "cities": p.get("cities", []),
+            "country": p.get("country", ""),
+            "lat": p.get("lat", None),
+            "lng": p.get("lng", None),
         },
         ensure_ascii=False,
     )
