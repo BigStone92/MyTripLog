@@ -127,9 +127,9 @@ export default function WorldFootprintMap({
       worldCopyJump: true,
     });
 
-    // Apple 다크 모드 감성의 CartoDB Dark Matter 무료 타일 (API Key 불필요)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd',
+    // 공식 OpenStreetMap 표준 타일 + Apple 다크 모드 CSS 인버트 필터 (API Key 영구 불필요, 워터마크 없음)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      className: 'osm-dark-tiles',
       maxZoom: 19,
     }).addTo(map);
 

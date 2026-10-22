@@ -89,3 +89,13 @@ dialog.bottom-sheet::backdrop {
 .bottom-island-safe {
   bottom: max(8px, calc(env(safe-area-inset-bottom, 12px) - 10px));
 }
+
+/* OpenStreetMap Apple Dark Mode Tile Filter (API Key 영구 불필요 & 워터마크 없음) */
+.osm-dark-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(86%) contrast(92%) saturate(85%);
+}
+
+.leaflet-container {
+  background-color: #090d16 !important;
+  font-family: inherit;
+}
